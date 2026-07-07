@@ -1,0 +1,15 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: qltruongcung-db
+    environment:
+      POSTGRES_USER: posadmin
+      POSTGRES_PASSWORD: posadmin123
+      POSTGRES_DB: qltruongcung
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+
+volumes:
+  pgdata:

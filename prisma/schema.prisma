@@ -1,0 +1,269 @@
+// ── Prisma Schema: QL Trường Cung POS ─────────────────
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ── Enums ──────────────────────────────────────────────
+
+enum UserRole {
+  ADMIN
+  STAFF
+}
+
+enum CustomerType {
+  WALK_IN
+  STUDENT
+  MEMBER
+}
+
+enum SessionStatus {
+  ACTIVE
+  PAUSED
+  COMPLETED
+  CANCELLED
+}
+
+enum ServiceCategory {
+  DRINK
+  EQUIPMENT
+  OTHER
+}
+
+enum DayType {
+  WEEKDAY
+  WEEKEND
+  HOLIDAY
+}
+
+enum PeakType {
+  PEAK
+  OFF_PEAK
+}
+
+enum PromotionType {
+  HOURS_THRESHOLD
+  STUDENT
+  MEMBER_TIER
+  PERCENTAGE
+  FIXED
+}
+
+enum PaymentMethod {
+  CASH
+  TRANSFER
+  CARD
+}
+
+enum ShiftStatus {
+  ACTIVE
+  COMPLETED
+}
+
+// ── Models ─────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(uuid())
+  username     String   @unique @db.VarChar(50)
+  passwordHash String   @map("password_hash") @db.VarChar(255)
+  fullName     String   @map("full_name") @db.VarChar(100)
+  role         UserRole @default(STAFF)
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  sessions      Session[]
+  payments      Payment[]
+  activityLogs  ActivityLog[]
+  shifts        Shift[]
+
+  @@map("users")
+}
+
+model Customer {
+  id               String       @id @default(uuid())
+  fullName         String       @map("full_name") @db.VarChar(100)
+  phone            String?      @db.VarChar(20)
+  type             CustomerType @default(WALK_IN)
+  memberCode       String?      @unique @map("member_code") @db.VarChar(20)
+  memberSince      DateTime?    @map("member_since")
+  memberTierId     String?      @map("member_tier_id")
+  memberTier       MembershipTier? @relation(fields: [memberTierId], references: [id])
+  totalHoursPlayed Decimal      @default(0) @map("total_hours_played") @db.Decimal(10, 2)
+  totalSpent       Decimal      @default(0) @map("total_spent") @db.Decimal(12, 0)
+  notes            String?      @db.Text
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  sessions Session[]
+
+  @@map("customers")
+}
+
+model MembershipTier {
+  id              String  @id @default(uuid())
+  name            String  @db.VarChar(50)
+  minHours        Decimal @default(0) @map("min_hours") @db.Decimal(10, 2)
+  minSpent        Decimal @default(0) @map("min_spent") @db.Decimal(12, 0)
+  discountPercent Decimal @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  benefits        Json?   @db.JsonB
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  customers Customer[]
+
+  @@map("membership_tiers")
+}
+
+model Session {
+  id             String        @id @default(uuid())
+  customerId     String        @map("customer_id")
+  customer       Customer      @relation(fields: [customerId], references: [id])
+  staffId        String        @map("staff_id")
+  staff          User          @relation(fields: [staffId], references: [id])
+  startTime      DateTime      @map("start_time")
+  endTime        DateTime?     @map("end_time")
+  status         SessionStatus @default(ACTIVE)
+  totalHours     Decimal?      @map("total_hours") @db.Decimal(5, 2)
+  hourlyRate     Decimal       @map("hourly_rate") @db.Decimal(10, 0)
+  subtotal       Decimal?      @db.Decimal(12, 0)
+  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 0)
+  totalAmount    Decimal?      @map("total_amount") @db.Decimal(12, 0)
+  notes          String?       @db.Text
+  createdAt      DateTime      @default(now()) @map("created_at")
+  updatedAt      DateTime      @updatedAt @map("updated_at")
+
+  orders            SessionOrder[]
+  appliedPromotions SessionPromotion[]
+  payment           Payment?
+
+  @@map("sessions")
+}
+
+model PricingRule {
+  id            String    @id @default(uuid())
+  name          String    @db.VarChar(100)
+  hourFrom      Int       @map("hour_from")
+  hourTo        Int?      @map("hour_to")
+  ratePerHour   Decimal   @map("rate_per_hour") @db.Decimal(10, 0)
+  dayType       DayType   @default(WEEKDAY) @map("day_type")
+  peakType      PeakType  @default(PEAK) @map("peak_type")
+  effectiveFrom DateTime  @map("effective_from")
+  effectiveTo   DateTime? @map("effective_to")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  @@map("pricing_rules")
+}
+
+model Service {
+  id             String          @id @default(uuid())
+  name           String          @db.VarChar(100)
+  category       ServiceCategory @default(DRINK)
+  price          Decimal         @db.Decimal(10, 0)
+  stockQuantity  Int?            @map("stock_quantity")
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at")
+  updatedAt      DateTime        @updatedAt @map("updated_at")
+
+  orders SessionOrder[]
+
+  @@map("services")
+}
+
+model SessionOrder {
+  id        String   @id @default(uuid())
+  sessionId String   @map("session_id")
+  session   Session  @relation(fields: [sessionId], references: [id])
+  serviceId String   @map("service_id")
+  service   Service  @relation(fields: [serviceId], references: [id])
+  quantity  Int      @default(1)
+  unitPrice Decimal  @map("unit_price") @db.Decimal(10, 0)
+  subtotal  Decimal  @db.Decimal(12, 0)
+  createdAt DateTime @default(now()) @map("created_at")
+
+  @@map("session_orders")
+}
+
+model Promotion {
+  id                       String          @id @default(uuid())
+  name                     String          @db.VarChar(200)
+  description              String?         @db.Text
+  type                     PromotionType
+  minHours                 Decimal?        @map("min_hours") @db.Decimal(5, 2)
+  discountPercent          Decimal?        @map("discount_percent") @db.Decimal(5, 2)
+  discountAmount           Decimal?        @map("discount_amount") @db.Decimal(12, 0)
+  maxDiscount              Decimal?        @map("max_discount") @db.Decimal(12, 0)
+  applicableCustomerTypes  CustomerType[]  @map("applicable_customer_types")
+  isActive                 Boolean         @default(true) @map("is_active")
+  startDate                DateTime?       @map("start_date")
+  endDate                  DateTime?       @map("end_date")
+  createdAt                DateTime        @default(now()) @map("created_at")
+  updatedAt                DateTime        @updatedAt @map("updated_at")
+
+  appliedToSession SessionPromotion[]
+
+  @@map("promotions")
+}
+
+model SessionPromotion {
+  id            String    @id @default(uuid())
+  sessionId     String    @map("session_id")
+  session       Session   @relation(fields: [sessionId], references: [id])
+  promotionId   String    @map("promotion_id")
+  promotion     Promotion @relation(fields: [promotionId], references: [id])
+  discountAmount Decimal  @map("discount_amount") @db.Decimal(12, 0)
+  createdAt     DateTime  @default(now()) @map("created_at")
+
+  @@map("session_promotions")
+}
+
+model Payment {
+  id            String        @id @default(uuid())
+  sessionId     String        @unique @map("session_id")
+  session       Session       @relation(fields: [sessionId], references: [id])
+  staffId       String        @map("staff_id")
+  staff         User          @relation(fields: [staffId], references: [id])
+  totalHours    Decimal       @map("total_hours") @db.Decimal(5, 2)
+  subtotal      Decimal       @db.Decimal(12, 0)
+  discountTotal Decimal       @default(0) @map("discount_total") @db.Decimal(12, 0)
+  grandTotal    Decimal       @map("grand_total") @db.Decimal(12, 0)
+  paymentMethod PaymentMethod @map("payment_method")
+  paidAt        DateTime      @default(now()) @map("paid_at")
+  notes         String?       @db.Text
+  createdAt     DateTime      @default(now()) @map("created_at")
+
+  @@map("payments")
+}
+
+model ActivityLog {
+  id         String   @id @default(uuid())
+  userId     String   @map("user_id")
+  user       User     @relation(fields: [userId], references: [id])
+  action     String   @db.VarChar(100)
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String   @map("entity_id") @db.Uuid
+  details    Json?    @db.JsonB
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  @@map("activity_logs")
+}
+
+model Shift {
+  id        String      @id @default(uuid())
+  userId    String      @map("user_id")
+  user      User        @relation(fields: [userId], references: [id])
+  startTime DateTime    @map("start_time")
+  endTime   DateTime?   @map("end_time")
+  status    ShiftStatus @default(ACTIVE)
+  notes     String?     @db.Text
+  createdAt DateTime    @default(now()) @map("created_at")
+  updatedAt DateTime    @updatedAt @map("updated_at")
+
+  @@map("shifts")
+}
