@@ -13,8 +13,6 @@ export interface PricingResult {
   subtotal: number;          // Tiền giờ (chưa giảm giá)
   typeDiscount: number;      // Giảm theo loại KH (student, member)
   volumeDiscount: number;    // Giảm theo tổng giờ
-  promotionDiscount: number; // Giảm từ CTKM
-  servicesTotal: number;     // Tổng tiền dịch vụ
   grandTotal: number;        // Tổng thanh toán
 }
 
@@ -28,13 +26,12 @@ const VOLUME_TIERS = [
 ];
 
 // ── Customer type discount ─────────────────────────────
-// TODO: Điều chỉnh theo yêu cầu stakeholder
-function getCustomerTypeDiscount(type: CustomerType, memberDiscountPercent = 0): number {
+const MEMBER_DISCOUNT_PERCENT = 5;
+
+function getCustomerTypeDiscount(type: CustomerType): number {
   switch (type) {
-    case "STUDENT":
-      return 20; // 20%
     case "MEMBER":
-      return memberDiscountPercent;
+      return MEMBER_DISCOUNT_PERCENT;
     default:
       return 0;
   }
@@ -79,8 +76,7 @@ export async function calculateSessionPrice(
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
     include: {
-      customer: { include: { memberTier: true } },
-      orders: true,
+      customer: true,
     },
   });
 
@@ -112,19 +108,12 @@ export async function calculateSessionPrice(
 
   // 5. Customer type discount
   const typeDiscountPercent = getCustomerTypeDiscount(
-    session.customer.type as CustomerType,
-    Number(session.customer.memberTier?.discountPercent ?? 0)
+    session.customer.type as CustomerType
   );
   const typeDiscount = Math.round((subtotal * typeDiscountPercent) / 100);
 
-  // 6. Tổng tiền dịch vụ
-  const servicesTotal = session.orders.reduce(
-    (sum, o) => sum + Number(o.subtotal),
-    0
-  );
-
-  // 7. Grand total (before promotions — promotions applied separately)
-  const beforePromotions = subtotal - volumeDiscount - typeDiscount + servicesTotal;
+  // 6. Grand total
+  const grandTotal = subtotal - volumeDiscount - typeDiscount;
 
   return {
     hourlyRate,
@@ -132,8 +121,6 @@ export async function calculateSessionPrice(
     subtotal,
     typeDiscount,
     volumeDiscount,
-    promotionDiscount: 0, // Sẽ được tính riêng qua /api/promotions/calculate
-    servicesTotal,
-    grandTotal: Math.max(0, beforePromotions),
+    grandTotal: Math.max(0, grandTotal),
   };
 }

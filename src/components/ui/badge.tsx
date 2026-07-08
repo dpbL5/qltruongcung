@@ -1,6 +1,6 @@
 // ── Badge component ─────────────────────────────────────
 // Dùng cho trạng thái (ACTIVE/COMPLETED/MAINTENANCE)
-// và loại khách hàng (MEMBER/STUDENT/WALK_IN)
+// và loại khách hàng (MEMBER/WALK_IN)
 
 import type { ReactNode } from "react";
 
@@ -10,27 +10,49 @@ type BadgeVariant =
   | "danger"
   | "purple"
   | "blue"
-  | "default";
+  | "default"
+  | "outline";
+
+type BadgeSize = "sm" | "md";
 
 const variantStyles: Record<BadgeVariant, string> = {
-  success: "bg-green-500/20 text-green-400",
-  warning: "bg-yellow-500/20 text-yellow-400",
-  danger: "bg-red-500/20 text-red-400",
-  purple: "bg-purple-500/20 text-purple-400",
-  blue: "bg-blue-500/20 text-blue-400",
-  default: "bg-zinc-500/20 text-zinc-400",
+  success:
+    "bg-green-50 text-green-700 border-green-200 dark:bg-green-500/15 dark:text-green-400 dark:border-green-500/25",
+  warning:
+    "bg-yellow-50 text-yellow-700 border-yellow-200 dark:bg-yellow-500/15 dark:text-yellow-400 dark:border-yellow-500/25",
+  danger:
+    "bg-red-50 text-red-700 border-red-200 dark:bg-red-500/15 dark:text-red-400 dark:border-red-500/25",
+  purple:
+    "bg-purple-50 text-purple-700 border-purple-200 dark:bg-purple-500/15 dark:text-purple-400 dark:border-purple-500/25",
+  blue:
+    "bg-blue-50 text-blue-700 border-blue-200 dark:bg-blue-500/15 dark:text-blue-400 dark:border-blue-500/25",
+  default:
+    "bg-zinc-100 text-zinc-600 border-zinc-200 dark:bg-zinc-500/15 dark:text-zinc-400 dark:border-zinc-500/25",
+  outline:
+    "bg-transparent text-zinc-600 border-zinc-300 dark:text-zinc-400 dark:border-zinc-600",
+};
+
+const sizeStyles: Record<BadgeSize, string> = {
+  sm: "px-1.5 py-0 text-[10px]",
+  md: "px-2 py-0.5 text-xs",
 };
 
 interface BadgeProps {
   variant?: BadgeVariant;
+  size?: BadgeSize;
   children: ReactNode;
   className?: string;
 }
 
-export function Badge({ variant = "default", children, className = "" }: BadgeProps) {
+export function Badge({
+  variant = "default",
+  size = "md",
+  children,
+  className = "",
+}: BadgeProps) {
   return (
     <span
-      className={`inline-block rounded-full px-2 py-0.5 text-xs font-medium ${variantStyles[variant]} ${className}`}
+      className={`inline-flex items-center rounded-full border font-medium ${variantStyles[variant]} ${sizeStyles[size]} ${className}`}
     >
       {children}
     </span>

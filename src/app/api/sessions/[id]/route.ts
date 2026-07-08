@@ -16,10 +16,8 @@ export async function GET(
     const session = await prisma.session.findUnique({
       where: { id },
       include: {
-        customer: { include: { memberTier: true } },
+        customer: true,
         staff: { select: { id: true, fullName: true } },
-        orders: { include: { service: true } },
-        appliedPromotions: { include: { promotion: true } },
         payment: true,
       },
     });

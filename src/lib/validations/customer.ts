@@ -8,7 +8,7 @@ export const createCustomerSchema = z.object({
     .regex(/^0\d{9,10}$/, "Số điện thoại không hợp lệ")
     .optional()
     .or(z.literal("")),
-  type: z.enum(["WALK_IN", "STUDENT", "MEMBER"]).default("WALK_IN"),
+  type: z.enum(["WALK_IN", "MEMBER"]).default("WALK_IN"),
 });
 
 export const updateCustomerSchema = z.object({
@@ -19,11 +19,6 @@ export const updateCustomerSchema = z.object({
     .optional()
     .or(z.literal("")),
   notes: z.string().max(500).optional(),
-});
-
-export const upgradeMemberSchema = z.object({
-  memberCode: z.string().max(20).optional(),
-  memberTierId: z.string().uuid(),
 });
 
 export type CreateCustomerInput = z.infer<typeof createCustomerSchema>;

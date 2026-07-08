@@ -78,17 +78,6 @@ export async function POST(request: NextRequest) {
     const { hourlyRate } = parsed.data;
     let { customerId } = parsed.data;
 
-    // Kiểm tra nhân viên đã bắt đầu ca làm chưa
-    const activeShift = await prisma.shift.findFirst({
-      where: { userId: auth.userId, status: "ACTIVE" },
-    });
-    if (!activeShift) {
-      return NextResponse.json(
-        { success: false, error: "Bạn chưa bắt đầu ca làm việc. Vui lòng bắt đầu ca trước khi check-in khách." },
-        { status: 400 }
-      );
-    }
-
     // Nếu không có customerId → tự tạo khách ẩn danh
     if (!customerId) {
       const today = new Date();
@@ -132,7 +121,6 @@ export async function POST(request: NextRequest) {
     const rate = hourlyRate
       || await findApplicableRate(now.getHours(), getDayType(now), getPeakType(now));
 
-    // Tạo session
     const newSession = await prisma.session.create({
       data: {
         customerId,

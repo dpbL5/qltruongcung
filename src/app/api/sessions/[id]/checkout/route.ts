@@ -26,24 +26,11 @@ export async function POST(
       );
     }
 
-    // Kiểm tra nhân viên đã bắt đầu ca làm chưa
-    const activeShift = await prisma.shift.findFirst({
-      where: { userId: auth.userId, status: "ACTIVE" },
-    });
-    if (!activeShift) {
-      return NextResponse.json(
-        { success: false, error: "Bạn chưa bắt đầu ca làm việc. Vui lòng bắt đầu ca trước khi checkout." },
-        { status: 400 }
-      );
-    }
-
     // Kiểm tra session tồn tại và đang active/paused
     const session = await prisma.session.findUnique({
       where: { id },
       include: {
-        customer: { include: { memberTier: true } },
-        orders: true,
-        appliedPromotions: { include: { promotion: true } },
+        customer: true,
       },
     });
 
@@ -67,18 +54,10 @@ export async function POST(
     // Tính giá
     const pricing = await calculateSessionPrice(id, endTime);
 
-    // Tổng KM đã áp dụng
-    const totalPromotionDiscount = session.appliedPromotions.reduce(
-      (sum, sp) => sum + Number(sp.discountAmount),
-      0
-    );
-
     // Grand total
     const grandTotal = pricing.subtotal
       - pricing.typeDiscount
-      - pricing.volumeDiscount
-      - totalPromotionDiscount
-      + pricing.servicesTotal;
+      - pricing.volumeDiscount;
 
     // Tạo payment + cập nhật session + cập nhật KH
     const result = await prisma.$transaction(async (tx) => {
@@ -89,7 +68,7 @@ export async function POST(
           staffId: auth.userId,
           totalHours: pricing.totalHours,
           subtotal: pricing.subtotal,
-          discountTotal: pricing.typeDiscount + pricing.volumeDiscount + totalPromotionDiscount,
+          discountTotal: pricing.typeDiscount + pricing.volumeDiscount,
           grandTotal: Math.max(0, grandTotal),
           paymentMethod: parsed.data.paymentMethod,
           paidAt: new Date(),
@@ -105,7 +84,7 @@ export async function POST(
           status: "COMPLETED",
           totalHours: pricing.totalHours,
           subtotal: pricing.subtotal,
-          discountAmount: pricing.typeDiscount + pricing.volumeDiscount + totalPromotionDiscount,
+          discountAmount: pricing.typeDiscount + pricing.volumeDiscount,
           totalAmount: Math.max(0, grandTotal),
         },
       });
@@ -134,8 +113,6 @@ export async function POST(
         subtotal: pricing.subtotal,
         typeDiscount: pricing.typeDiscount,
         volumeDiscount: pricing.volumeDiscount,
-        promotionDiscount: totalPromotionDiscount,
-        servicesTotal: pricing.servicesTotal,
         grandTotal: Math.max(0, grandTotal),
         paymentMethod: parsed.data.paymentMethod,
         paymentId: result.id,

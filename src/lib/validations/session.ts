@@ -12,11 +12,6 @@ export const checkoutSessionSchema = z.object({
   notes: z.string().max(500).optional(),
 });
 
-export const addOrderSchema = z.object({
-  serviceId: z.string().uuid("ID dịch vụ không hợp lệ"),
-  quantity: z.number().int().positive("Số lượng phải > 0"),
-});
-
 export const updateSessionSchema = z.object({
   status: z.enum(["ACTIVE", "PAUSED", "CANCELLED"]).optional(),
   notes: z.string().max(500).optional(),
@@ -24,4 +19,3 @@ export const updateSessionSchema = z.object({
 
 export type CreateSessionInput = z.infer<typeof createSessionSchema>;
 export type CheckoutSessionInput = z.infer<typeof checkoutSessionSchema>;
-export type AddOrderInput = z.infer<typeof addOrderSchema>;

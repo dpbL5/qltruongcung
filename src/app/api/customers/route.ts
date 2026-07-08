@@ -30,7 +30,6 @@ export async function GET(request: NextRequest) {
     const [data, total] = await Promise.all([
       prisma.customer.findMany({
         where,
-        include: { memberTier: true },
         skip,
         take: limit,
         orderBy: { createdAt: "desc" },
