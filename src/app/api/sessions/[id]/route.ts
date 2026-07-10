@@ -2,6 +2,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
 import { requireAuth } from "@/lib/auth";
+import { logActivity } from "@/lib/business/audit";
 import { updateSessionSchema } from "@/lib/validations/session";
 
 // ── GET: Chi tiết phiên ────────────────────────────────
@@ -34,6 +35,7 @@ export async function GET(
     if ((error as Error).message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
+    console.error("GET /api/sessions/[id] error:", error);
     return NextResponse.json({ success: false, error: "Lỗi máy chủ" }, { status: 500 });
   }
 }
@@ -44,7 +46,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    const auth = await requireAuth();
     const { id } = await params;
 
     const body = await request.json();
@@ -65,11 +67,42 @@ export async function PUT(
       );
     }
 
-    await prisma.session.update({ where: { id }, data: parsed.data });
+    // Chặn sửa phiên đã COMPLETED (chỉ cho phép huỷ phiên ACTIVE)
+    if (existing.status === "COMPLETED") {
+      return NextResponse.json(
+        { success: false, error: "Không thể sửa phiên đã kết thúc" },
+        { status: 400 }
+      );
+    }
 
-    const updated = await prisma.session.findUnique({
-      where: { id },
-      include: { customer: { select: { id: true, fullName: true } } },
+    // Chặn chuyển CANCELLED về ACTIVE
+    if (existing.status === "CANCELLED" && parsed.data.status === "ACTIVE") {
+      return NextResponse.json(
+        { success: false, error: "Không thể kích hoạt lại phiên đã hủy" },
+        { status: 400 }
+      );
+    }
+
+    const updated = await prisma.$transaction(async (tx) => {
+      const session = await tx.session.update({
+        where: { id },
+        data: parsed.data,
+        include: { customer: { select: { id: true, fullName: true } } },
+      });
+
+      await logActivity(tx, {
+        userId: auth.userId,
+        action: parsed.data.status === 'CANCELLED' ? 'SESSION_CANCEL' : 'SESSION_UPDATE',
+        entityType: 'Session',
+        entityId: id,
+        details: {
+          previousStatus: existing.status,
+          newStatus: session.status,
+          notes: parsed.data.notes ?? null,
+        },
+      });
+
+      return session;
     });
 
     return NextResponse.json({ success: true, data: updated });
@@ -77,6 +110,7 @@ export async function PUT(
     if ((error as Error).message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
+    console.error("PUT /api/sessions/[id] error:", error);
     return NextResponse.json({ success: false, error: "Lỗi máy chủ" }, { status: 500 });
   }
 }

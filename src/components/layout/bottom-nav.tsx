@@ -1,72 +1,70 @@
-"use client";
+'use client'
 
-// ── Bottom Navigation — mobile POS tab bar ──────────────
-// 5-tab bottom nav for phone screens (<768px)
-// Staff use this for quick access to check-in, sessions, etc.
-
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
 import {
-  LayoutDashboard,
-  Timer,
-  Users,
+  Banknote,
   BarChart3,
-  Settings,
+  MoreHorizontal,
+  Package,
+  ShieldCheck,
+  Timer,
   type LucideIcon,
-} from "lucide-react";
+} from 'lucide-react'
 
 interface NavItem {
-  href: string;
-  label: string;
-  Icon: LucideIcon;
+  href: string
+  label: string
+  Icon: LucideIcon
 }
 
 const navItems: NavItem[] = [
-  { href: "/", label: "Dashboard", Icon: LayoutDashboard },
-  { href: "/sessions", label: "Phiên bắn", Icon: Timer },
-  { href: "/customers", label: "Khách", Icon: Users },
-  { href: "/reports", label: "Báo cáo", Icon: BarChart3 },
-  { href: "/settings", label: "Cài đặt", Icon: Settings },
-];
+  { href: '/sessions', label: 'Ca', Icon: Timer },
+  { href: '/customers', label: 'Hội viên', Icon: ShieldCheck },
+  { href: '/inventory', label: 'Kho', Icon: Package },
+  { href: '/pricing', label: 'Giá', Icon: Banknote },
+  { href: '/reports', label: 'Báo cáo', Icon: BarChart3 },
+  { href: '/settings', label: 'Thêm', Icon: MoreHorizontal },
+]
 
 export function BottomNav() {
-  const pathname = usePathname();
+  const pathname = usePathname()
 
   const isActive = (href: string) =>
-    href === "/" ? pathname === "/" : pathname.startsWith(href);
+    href === '/sessions'
+      ? pathname === '/sessions' || pathname === '/'
+      : pathname.startsWith(href)
 
   return (
-    <nav className="md:hidden fixed bottom-0 inset-x-0 z-50 border-t border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md safe-area-bottom">
-      <div className="flex items-center justify-around h-16">
+    <nav className="safe-area-bottom fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 md:hidden">
+      <div className="grid h-16 grid-cols-6">
         {navItems.map((item) => {
-          const active = isActive(item.href);
-          const { Icon } = item;
+          const active = isActive(item.href)
+          const { Icon } = item
           return (
             <Link
               key={item.href}
               href={item.href}
-              className={`flex flex-col items-center justify-center gap-0.5 min-w-0 flex-1 py-1 transition-colors ${
+              className={`flex min-w-0 flex-col items-center justify-center gap-0.5 py-1 transition-colors ${
                 active
-                  ? "text-blue-600 dark:text-blue-400"
-                  : "text-zinc-400 dark:text-zinc-500"
+                  ? 'text-blue-600 dark:text-blue-400'
+                  : 'text-zinc-400 dark:text-zinc-500'
               }`}
             >
               <div
-                className={`relative flex items-center justify-center rounded-lg p-1 transition-colors ${
-                  active
-                    ? "bg-blue-50 dark:bg-blue-500/15"
-                    : ""
+                className={`flex items-center justify-center rounded-lg p-1 transition-colors ${
+                  active ? 'bg-blue-50 dark:bg-blue-500/15' : ''
                 }`}
               >
                 <Icon size={20} />
               </div>
-              <span className="text-[10px] font-medium truncate max-w-[64px]">
+              <span className="max-w-[64px] truncate text-[10px] font-medium">
                 {item.label}
               </span>
             </Link>
-          );
+          )
         })}
       </div>
     </nav>
-  );
+  )
 }

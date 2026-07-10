@@ -1,11 +1,18 @@
 // ── JWT Auth với jose ───────────────────────────────────
 import { SignJWT, jwtVerify } from "jose";
 import { cookies } from "next/headers";
+import { prisma } from "@/lib/prisma";
 import type { SessionPayload } from "@/types";
 
 // ── Config ─────────────────────────────────────────────
+const rawSessionSecret = process.env.SESSION_SECRET;
+
+if (process.env.NODE_ENV === "production" && (!rawSessionSecret || rawSessionSecret.length < 32)) {
+  throw new Error("SESSION_SECRET phải có ít nhất 32 ký tự trong production");
+}
+
 const SESSION_SECRET = new TextEncoder().encode(
-  process.env.SESSION_SECRET || "dev-secret-change-in-production-min-32-chars!!"
+  rawSessionSecret || "dev-secret-change-in-production-min-32-chars!!"
 );
 const SESSION_NAME = "qltrungcung_session";
 const SESSION_MAX_AGE = 60 * 60 * 8; // 8 giờ
@@ -56,7 +63,28 @@ export async function requireAuth(): Promise<SessionPayload> {
   if (!session) {
     throw new Error("UNAUTHORIZED");
   }
-  return session;
+
+  const user = await prisma.user.findUnique({
+    where: { id: session.userId },
+    select: {
+      id: true,
+      username: true,
+      fullName: true,
+      role: true,
+      isActive: true,
+    },
+  });
+
+  if (!user || !user.isActive) {
+    throw new Error("UNAUTHORIZED");
+  }
+
+  return {
+    userId: user.id,
+    username: user.username,
+    fullName: user.fullName,
+    role: user.role,
+  };
 }
 
 // ── Require admin role ─────────────────────────────────

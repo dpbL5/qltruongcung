@@ -1,0 +1,1386 @@
+'use client'
+
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  Clock,
+  LogIn,
+  Minus,
+  Package,
+  Plus,
+  RefreshCw,
+  Search,
+  ShieldCheck,
+  Timer,
+  UserPlus,
+  Users,
+} from 'lucide-react'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { EmptyState } from '@/components/ui/empty-state'
+import { Input, Label, Select, Textarea } from '@/components/ui/input'
+import { Modal } from '@/components/ui/modal'
+import { NoticeCard } from '@/components/ui/notice-card'
+import { Skeleton } from '@/components/ui/skeleton'
+import { useToast } from '@/components/ui/toast'
+import { apiJson, jsonRequest } from './api'
+import {
+  calcCurrentPlayCost,
+  calcElapsedHMS,
+  formatClock,
+  formatDay,
+  money,
+  paymentMethodLabel,
+  toNumber,
+} from './format'
+import type {
+  Customer,
+  Membership,
+  MembershipPlan,
+  PaymentMethod,
+  Product,
+  SessionRow,
+  Shift,
+} from './types'
+
+type CheckInMode = 'WALK_IN' | 'MEMBER'
+
+export function TodayShiftScreen() {
+  const { success: notifySuccess, error: notifyError } = useToast()
+
+  const [shift, setShift] = useState<Shift | null>(null)
+  const [openOperationalShift, setOpenOperationalShift] = useState<Shift | null>(null)
+  const [sessions, setSessions] = useState<SessionRow[]>([])
+  const [products, setProducts] = useState<Product[]>([])
+  const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([])
+  const [pricingCount, setPricingCount] = useState<number | null>(null)
+  const [activePricingCount, setActivePricingCount] = useState<number | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const [openShiftDialog, setOpenShiftDialog] = useState(false)
+  const [closeShiftDialog, setCloseShiftDialog] = useState(false)
+  const [checkInDialog, setCheckInDialog] = useState(false)
+  const [checkInInitialMode, setCheckInInitialMode] = useState<CheckInMode>('WALK_IN')
+  const [checkoutSession, setCheckoutSession] = useState<SessionRow | null>(null)
+
+  const [, setTick] = useState(0)
+  useEffect(() => {
+    const id = window.setInterval(() => setTick((value) => value + 1), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    setError('')
+    try {
+      const [shiftData, openShiftData, sessionData, productData, planData, pricingData] = await Promise.all([
+        apiJson<Shift | null>('/api/shifts?current=true'),
+        apiJson<Shift | null>('/api/shifts?openOperational=true'),
+        apiJson<SessionRow[]>('/api/sessions?status=ACTIVE&limit=50'),
+        apiJson<Product[]>('/api/products?isActive=true'),
+        apiJson<MembershipPlan[]>('/api/membership-plans'),
+        apiJson<{ count: number; activeCount?: number }>('/api/pricing/status'),
+      ])
+
+      if (!shiftData.success) throw new Error(shiftData.error || 'Không tải được ca làm')
+      if (!openShiftData.success) throw new Error(openShiftData.error || 'Không tải được ca đang mở')
+      if (!sessionData.success) throw new Error(sessionData.error || 'Không tải được phiên chơi')
+      if (!productData.success) throw new Error(productData.error || 'Không tải được hàng hóa')
+      if (!planData.success) throw new Error(planData.error || 'Không tải được gói hội viên')
+      if (!pricingData.success) throw new Error(pricingData.error || 'Không tải được bảng giá')
+
+      setShift(shiftData.data ?? null)
+      setOpenOperationalShift(openShiftData.data ?? null)
+      setSessions(sessionData.data ?? [])
+      setProducts(productData.data ?? [])
+      setMembershipPlans((planData.data ?? []).filter((plan) => plan.isActive))
+      setPricingCount(pricingData.data?.count ?? 0)
+      setActivePricingCount(pricingData.data?.activeCount ?? pricingData.data?.count ?? 0)
+    } catch (err) {
+      setError((err as Error).message || 'Lỗi kết nối máy chủ')
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  // eslint-disable-next-line react-hooks/set-state-in-effect
+  useEffect(() => { void loadData() }, [loadData])
+
+  const lowStockProducts = useMemo(
+    () => products.filter((product) =>
+      product.type === 'PRODUCT'
+      && product.stockQuantity <= Math.max(1, product.minStockLevel)
+    ),
+    [products]
+  )
+
+  const activeWalkIns = sessions.filter((session) => session.customer.type === 'WALK_IN').length
+  const activeMembers = sessions.filter((session) => session.customer.type === 'MEMBER').length
+  const pricingReady = (activePricingCount ?? pricingCount ?? 0) > 0
+  const shiftReady = !!shift
+
+  const handleOpenShift = async (openingCash?: number, notes?: string) => {
+    setSubmitting(true)
+    try {
+      const data = await apiJson<Shift>('/api/shifts', jsonRequest({ openingCash, notes }))
+      if (!data.success) {
+        notifyError(data.error || 'Không mở được ca')
+        return
+      }
+      notifySuccess(data.message || 'Đã mở hoặc tham gia ca')
+      setOpenShiftDialog(false)
+      await loadData()
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const handleCloseShift = async (closingCash: number, notes?: string) => {
+    if (!shift) return
+
+    setSubmitting(true)
+    try {
+      const data = await apiJson<Shift>(
+        `/api/shifts/${shift.id}/close`,
+        jsonRequest({ closingCash, notes })
+      )
+      if (!data.success) {
+        notifyError(data.error || 'Không đóng được ca')
+        return
+      }
+      notifySuccess('Đã đóng ca')
+      setCloseShiftDialog(false)
+      await loadData()
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  if (loading) {
+    return <TodayShiftSkeleton />
+  }
+
+  return (
+    <div className="min-h-full bg-zinc-50 px-4 py-4 dark:bg-zinc-950 md:px-6 md:py-6">
+      <div className="mx-auto flex max-w-5xl flex-col gap-4">
+        <header className="flex items-start justify-between gap-3">
+          <div>
+            <p className="text-xs font-medium uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+              Vận hành sân
+            </p>
+            <h1 className="mt-1 text-2xl font-bold text-zinc-950 dark:text-white">
+              Ca hôm nay
+            </h1>
+          </div>
+          <Button
+            variant="secondary"
+            size="sm"
+            icon={RefreshCw}
+            onClick={() => void loadData()}
+            title="Làm mới"
+          />
+        </header>
+
+        {error && (
+          <NoticeCard
+            tone="danger"
+            title="Không tải được dữ liệu"
+            description={error}
+          />
+        )}
+
+        <ShiftRail
+          shift={shift}
+          activeCount={sessions.length}
+          walkInCount={activeWalkIns}
+          memberCount={activeMembers}
+          onOpen={() => setOpenShiftDialog(true)}
+          onClose={() => setCloseShiftDialog(true)}
+        />
+
+        {!shiftReady && (
+          <NoticeCard
+            tone="warning"
+            title="Cần mở hoặc tham gia ca trước"
+            description="Check-in và thu tiền sẽ bị khóa cho đến khi nhân viên ở trong ca quầy đang mở."
+            action={
+              <Button variant="secondary" size="sm" onClick={() => setOpenShiftDialog(true)}>
+                Mở/Tham gia
+              </Button>
+            }
+          />
+        )}
+
+        {!pricingReady && (
+          <NoticeCard
+            tone="warning"
+            title="Chưa có bảng giá"
+            description="Khách vãng lai cần quy tắc giá hiệu lực cho thời điểm hiện tại. Hội viên vẫn cần ca mở và membership còn hạn."
+          />
+        )}
+
+        <QuickActions
+          shiftReady={shiftReady}
+          onCheckIn={() => {
+            setCheckInInitialMode('WALK_IN')
+            setCheckInDialog(true)
+          }}
+          onRenew={() => {
+            setCheckInInitialMode('MEMBER')
+            setCheckInDialog(true)
+          }}
+          onSell={() => {
+            if (sessions.length === 0) {
+              notifyError('Chưa có phiên đang chơi để bán kèm')
+              return
+            }
+            setCheckoutSession(sessions[0])
+          }}
+        />
+
+        <section className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+          <div className="flex items-center justify-between border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
+            <div>
+              <h2 className="text-sm font-semibold text-zinc-950 dark:text-white">
+                Đang chơi
+              </h2>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {sessions.length} phiên đang hoạt động
+              </p>
+            </div>
+            <Badge variant={shiftReady ? 'success' : 'warning'}>
+              {shiftReady ? 'Sẵn sàng' : 'Chưa mở ca'}
+            </Badge>
+          </div>
+
+          {sessions.length === 0 ? (
+            <EmptyState
+              icon={Timer}
+              message="Chưa có phiên đang chơi"
+              description={shiftReady ? 'Bắt đầu bằng một lượt check-in.' : 'Mở ca để bắt đầu vận hành.'}
+              action={
+                <Button variant="primary" disabled={!shiftReady} onClick={() => {
+                  setCheckInInitialMode('WALK_IN')
+                  setCheckInDialog(true)
+                }}>
+                  Check-in
+                </Button>
+              }
+            />
+          ) : (
+            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+              {sessions.map((session) => (
+                <ActiveSessionCard
+                  key={session.id}
+                  session={session}
+                  checkoutDisabled={!shiftReady}
+                  onCheckout={() => setCheckoutSession(session)}
+                />
+              ))}
+            </div>
+          )}
+        </section>
+
+        <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
+          <AttentionPanel
+            title="Tồn kho cần chú ý"
+            empty="Kho ổn định"
+            items={lowStockProducts.map((product) => ({
+              id: product.id,
+              label: product.name,
+              value: `${product.stockQuantity} còn lại`,
+            }))}
+          />
+          <AttentionPanel
+            title="Ràng buộc POS"
+            empty="Không có cảnh báo"
+            items={[
+              ...(!shiftReady ? [{ id: 'shift', label: 'Chưa mở ca', value: 'Khóa thu tiền' }] : []),
+              ...(!pricingReady ? [{ id: 'pricing', label: 'Chưa có bảng giá', value: 'Khóa vãng lai' }] : []),
+            ]}
+          />
+        </section>
+      </div>
+
+      <OpenShiftDialog
+        open={openShiftDialog}
+        existingShift={!shift ? openOperationalShift : null}
+        submitting={submitting}
+        onClose={() => setOpenShiftDialog(false)}
+        onSubmit={handleOpenShift}
+      />
+
+      <CloseShiftDialog
+        open={closeShiftDialog}
+        shift={shift}
+        submitting={submitting}
+        onClose={() => setCloseShiftDialog(false)}
+        onSubmit={handleCloseShift}
+      />
+
+      <CheckInDialog
+        open={checkInDialog}
+        initialMode={checkInInitialMode}
+        pricingReady={pricingReady}
+        shiftReady={shiftReady}
+        membershipPlans={membershipPlans}
+        submitting={submitting}
+        setSubmitting={setSubmitting}
+        onClose={() => setCheckInDialog(false)}
+        onDone={async () => {
+          setCheckInDialog(false)
+          await loadData()
+        }}
+      />
+
+      <CheckoutDrawer
+        session={checkoutSession}
+        products={products}
+        shiftReady={shiftReady}
+        submitting={submitting}
+        setSubmitting={setSubmitting}
+        onClose={() => setCheckoutSession(null)}
+        onDone={async () => {
+          setCheckoutSession(null)
+          await loadData()
+        }}
+      />
+    </div>
+  )
+}
+
+function TodayShiftSkeleton() {
+  return (
+    <div className="space-y-4 p-4 md:p-6">
+      <Skeleton className="h-10 w-40" />
+      <Skeleton className="h-32 w-full" />
+      <div className="grid grid-cols-3 gap-2">
+        <Skeleton className="h-20" />
+        <Skeleton className="h-20" />
+        <Skeleton className="h-20" />
+      </div>
+      <Skeleton className="h-64 w-full" />
+    </div>
+  )
+}
+
+function ShiftRail({
+  shift,
+  activeCount,
+  walkInCount,
+  memberCount,
+  onOpen,
+  onClose,
+}: {
+  shift: Shift | null
+  activeCount: number
+  walkInCount: number
+  memberCount: number
+  onOpen: () => void
+  onClose: () => void
+}) {
+  const participantNames = shift?.participants?.map((participant) => participant.staff.fullName) ?? []
+  const participantLabel = participantNames.length > 0
+    ? `${participantNames.length} nhân viên: ${participantNames.join(', ')}`
+    : shift?.staff
+      ? `Người mở ca: ${shift.staff.fullName}`
+      : ''
+
+  return (
+    <section className="overflow-hidden rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <div className="grid grid-cols-[6px_1fr]">
+        <div className={shift ? 'bg-emerald-500' : 'bg-amber-500'} />
+        <div className="p-4">
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <div className="flex items-center gap-2">
+                <Clock size={18} className={shift ? 'text-emerald-500' : 'text-amber-500'} />
+                <h2 className="text-sm font-semibold text-zinc-950 dark:text-white">
+                  {shift ? `Ca mở từ ${formatClock(shift.openedAt)}` : 'Chưa mở ca'}
+                </h2>
+              </div>
+              <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                {shift
+                  ? `${formatDay(shift.openedAt)} · Tiền đầu ca ${money(shift.openingCash)}`
+                  : 'Mở ca mới hoặc tham gia ca quầy đang mở để vận hành POS.'}
+              </p>
+              {shift && participantLabel && (
+                <p className="mt-2 flex min-w-0 items-center gap-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  <Users size={13} className="shrink-0" />
+                  <span className="truncate">{participantLabel}</span>
+                </p>
+              )}
+            </div>
+            {shift ? (
+              <Button variant="secondary" size="sm" onClick={onClose}>
+                Đóng ca
+              </Button>
+            ) : (
+              <Button variant="primary" size="sm" onClick={onOpen}>
+                Mở/Tham gia
+              </Button>
+            )}
+          </div>
+
+          <div className="mt-4 grid grid-cols-3 gap-2">
+            <MiniStat label="Đang chơi" value={activeCount} />
+            <MiniStat label="Vãng lai" value={walkInCount} />
+            <MiniStat label="Hội viên" value={memberCount} />
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function MiniStat({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-950">
+      <p className="text-[11px] text-zinc-500 dark:text-zinc-400">{label}</p>
+      <p className="mt-0.5 text-lg font-semibold tabular-nums text-zinc-950 dark:text-white">
+        {value}
+      </p>
+    </div>
+  )
+}
+
+function QuickActions({
+  shiftReady,
+  onCheckIn,
+  onRenew,
+  onSell,
+}: {
+  shiftReady: boolean
+  onCheckIn: () => void
+  onRenew: () => void
+  onSell: () => void
+}) {
+  const actions = [
+    { label: 'Check-in', Icon: LogIn, onClick: onCheckIn, tone: 'emerald' },
+    { label: 'Gia hạn', Icon: ShieldCheck, onClick: onRenew, tone: 'blue' },
+    { label: 'Bán kèm', Icon: Package, onClick: onSell, tone: 'zinc' },
+  ] as const
+
+  return (
+    <div className="grid grid-cols-3 gap-2">
+      {actions.map(({ label, Icon, onClick, tone }) => (
+        <button
+          key={label}
+          type="button"
+          disabled={!shiftReady}
+          onClick={onClick}
+          className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
+            tone === 'emerald'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
+              : tone === 'blue'
+                ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300'
+                : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200'
+          }`}
+        >
+          <Icon size={20} />
+          <span>{label}</span>
+        </button>
+      ))}
+    </div>
+  )
+}
+
+function ActiveSessionCard({
+  session,
+  checkoutDisabled,
+  onCheckout,
+}: {
+  session: SessionRow
+  checkoutDisabled: boolean
+  onCheckout: () => void
+}) {
+  const isMember = session.customer.type === 'MEMBER'
+  const currentCost = isMember ? 0 : calcCurrentPlayCost(session.startTime, session.hourlyRate)
+
+  return (
+    <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
+      <div className="min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="truncate text-sm font-semibold text-zinc-950 dark:text-white">
+            {session.customer.fullName}
+          </p>
+          <Badge variant={isMember ? 'purple' : 'default'} size="sm">
+            {isMember ? 'Hội viên' : 'Vãng lai'}
+          </Badge>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <span className="inline-flex items-center gap-1 tabular-nums">
+            <Timer size={13} />
+            {calcElapsedHMS(session.startTime)}
+          </span>
+          <span>{formatClock(session.startTime)}</span>
+          {session.shift ? <span>Ca {formatClock(session.shift.openedAt)}</span> : <span>Chưa gắn ca</span>}
+        </div>
+      </div>
+      <div className="flex flex-col items-end justify-between gap-2">
+        <p className="text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
+          {money(currentCost)}
+        </p>
+        <Button variant="inverse" size="xs" disabled={checkoutDisabled} onClick={onCheckout}>
+          Thu
+        </Button>
+      </div>
+    </div>
+  )
+}
+
+function AttentionPanel({
+  title,
+  empty,
+  items,
+}: {
+  title: string
+  empty: string
+  items: Array<{ id: string; label: string; value: string }>
+}) {
+  return (
+    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+      <h3 className="text-sm font-semibold text-zinc-950 dark:text-white">{title}</h3>
+      {items.length === 0 ? (
+        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{empty}</p>
+      ) : (
+        <div className="mt-3 space-y-2">
+          {items.map((item) => (
+            <div
+              key={item.id}
+              className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-950"
+            >
+              <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
+                {item.label}
+              </span>
+              <span className="shrink-0 text-xs font-medium text-amber-600 dark:text-amber-300">
+                {item.value}
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  )
+}
+
+function OpenShiftDialog({
+  open,
+  existingShift,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean
+  existingShift: Shift | null
+  submitting: boolean
+  onClose: () => void
+  onSubmit: (openingCash?: number, notes?: string) => void
+}) {
+  const [openingCash, setOpeningCash] = useState('0')
+  const [notes, setNotes] = useState('')
+  const isJoiningExistingShift = !!existingShift
+
+  useEffect(() => {
+    if (!open) return
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setOpeningCash('0')
+    setNotes('')
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, existingShift?.id])
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={isJoiningExistingShift ? 'Tham gia ca đang mở' : 'Mở ca'}
+      description={
+        isJoiningExistingShift
+          ? 'Ca quầy đã được mở, bạn chỉ cần tham gia để vận hành POS.'
+          : 'Nhập tiền mặt đầu ca để bắt đầu ca quầy.'
+      }
+      footer={
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={submitting}
+          onClick={() => {
+            if (isJoiningExistingShift) {
+              onSubmit()
+              return
+            }
+            onSubmit(Number(openingCash || 0), notes.trim() || undefined)
+          }}
+        >
+          {submitting
+            ? 'Đang xử lý...'
+            : isJoiningExistingShift
+              ? 'Tham gia ca'
+              : 'Mở ca'}
+        </Button>
+      }
+    >
+      <div className="space-y-3">
+        {isJoiningExistingShift ? (
+          <div className="rounded-xl border border-emerald-200 bg-emerald-50 p-3 dark:border-emerald-500/20 dark:bg-emerald-500/10">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                  Ca đang mở từ {formatClock(existingShift.openedAt)}
+                </p>
+                <p className="mt-1 text-xs text-emerald-700/80 dark:text-emerald-300/80">
+                  Người mở ca: {existingShift.staff?.fullName ?? 'Không rõ'} · Tiền đầu ca {money(existingShift.openingCash)}
+                </p>
+              </div>
+              <Badge variant="success">Đang mở</Badge>
+            </div>
+          </div>
+        ) : (
+          <>
+            <div>
+              <Label htmlFor="opening-cash">Tiền mặt đầu ca</Label>
+              <Input
+                id="opening-cash"
+                type="number"
+                min={0}
+                value={openingCash}
+                onChange={(event) => setOpeningCash(event.target.value)}
+              />
+            </div>
+            <div>
+              <Label htmlFor="opening-notes">Ghi chú</Label>
+              <Textarea
+                id="opening-notes"
+                rows={3}
+                value={notes}
+                onChange={(event) => setNotes(event.target.value)}
+              />
+            </div>
+          </>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+function CloseShiftDialog({
+  open,
+  shift,
+  submitting,
+  onClose,
+  onSubmit,
+}: {
+  open: boolean
+  shift: Shift | null
+  submitting: boolean
+  onClose: () => void
+  onSubmit: (closingCash: number, notes?: string) => void
+}) {
+  const [closingCash, setClosingCash] = useState('')
+  const [notes, setNotes] = useState('')
+
+  useEffect(() => {
+    if (open && shift) {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setClosingCash(String(toNumber(shift.openingCash)))
+    }
+  }, [open, shift])
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Đóng ca"
+      description={shift ? `Ca mở từ ${formatClock(shift.openedAt)}` : undefined}
+      footer={
+        <Button
+          variant="inverse"
+          size="lg"
+          fullWidth
+          disabled={submitting || !closingCash}
+          onClick={() => onSubmit(Number(closingCash), notes.trim() || undefined)}
+        >
+          {submitting ? 'Đang đóng ca...' : 'Đóng ca'}
+        </Button>
+      }
+    >
+      <div className="space-y-3">
+        <div className="rounded-lg bg-zinc-50 p-3 text-sm dark:bg-zinc-950">
+          <div className="flex justify-between">
+            <span className="text-zinc-500 dark:text-zinc-400">Tiền đầu ca</span>
+            <span className="font-medium text-zinc-950 dark:text-white">{money(shift?.openingCash)}</span>
+          </div>
+        </div>
+        <div>
+          <Label htmlFor="closing-cash" required>Tiền mặt thực đếm</Label>
+          <Input
+            id="closing-cash"
+            type="number"
+            min={0}
+            value={closingCash}
+            onChange={(event) => setClosingCash(event.target.value)}
+          />
+        </div>
+        <div>
+          <Label htmlFor="closing-notes">Ghi chú cuối ca</Label>
+          <Textarea
+            id="closing-notes"
+            rows={3}
+            value={notes}
+            onChange={(event) => setNotes(event.target.value)}
+          />
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function CheckInDialog({
+  open,
+  initialMode,
+  pricingReady,
+  shiftReady,
+  membershipPlans,
+  submitting,
+  setSubmitting,
+  onClose,
+  onDone,
+}: {
+  open: boolean
+  initialMode: CheckInMode
+  pricingReady: boolean
+  shiftReady: boolean
+  membershipPlans: MembershipPlan[]
+  submitting: boolean
+  setSubmitting: (value: boolean) => void
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const { success: notifySuccess, error: notifyError } = useToast()
+  const [mode, setMode] = useState<CheckInMode>('WALK_IN')
+  const [walkInName, setWalkInName] = useState('')
+  const [memberSearch, setMemberSearch] = useState('')
+  const [memberResults, setMemberResults] = useState<Customer[]>([])
+  const [selectedMember, setSelectedMember] = useState<Customer | null>(null)
+  const [currentMembership, setCurrentMembership] = useState<Membership | null>(null)
+  const [membershipActive, setMembershipActive] = useState(false)
+  const [memberLoading, setMemberLoading] = useState(false)
+  const [newMember, setNewMember] = useState(false)
+  const [newMemberName, setNewMemberName] = useState('')
+  const [newMemberPhone, setNewMemberPhone] = useState('')
+  const [planId, setPlanId] = useState('')
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
+
+  useEffect(() => {
+    if (!open) return
+    /* eslint-disable react-hooks/set-state-in-effect */
+    setMode(initialMode)
+    setWalkInName('')
+    setMemberSearch('')
+    setMemberResults([])
+    setSelectedMember(null)
+    setCurrentMembership(null)
+    setMembershipActive(false)
+    setNewMember(false)
+    setNewMemberName('')
+    setNewMemberPhone('')
+    setPlanId(membershipPlans[0]?.id ?? '')
+    setPaymentMethod('CASH')
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [open, initialMode, membershipPlans])
+
+  const searchMembers = async () => {
+    const q = memberSearch.trim()
+    if (!q) return
+
+    setMemberLoading(true)
+    setSelectedMember(null)
+    setCurrentMembership(null)
+    setMembershipActive(false)
+    try {
+      const data = await apiJson<Customer[]>(
+        `/api/customers?type=MEMBER&search=${encodeURIComponent(q)}&limit=8`
+      )
+      if (!data.success) {
+        notifyError(data.error || 'Không tìm được hội viên')
+        return
+      }
+      setMemberResults(data.data ?? [])
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setMemberLoading(false)
+    }
+  }
+
+  const loadMembership = async (customer: Customer) => {
+    setSelectedMember(customer)
+    setMemberSearch(customer.fullName)
+    setMemberResults([])
+    setMemberLoading(true)
+    try {
+      const data = await apiJson<Membership[]>(`/api/memberships?customerId=${customer.id}`)
+      if (!data.success) {
+        notifyError(data.error || 'Không tải được trạng thái hội viên')
+        return
+      }
+      setCurrentMembership(data.current ?? null)
+      setMembershipActive(!!data.current)
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setMemberLoading(false)
+    }
+  }
+
+  const createSession = async (customerId: string) => {
+    const data = await apiJson<SessionRow>('/api/sessions', jsonRequest({ customerId }))
+    if (!data.success) {
+      notifyError(data.error || 'Không check-in được')
+      return false
+    }
+    return true
+  }
+
+  const renewThenCheckIn = async (customerId: string) => {
+    if (!planId) {
+      notifyError('Chưa có gói hội viên để gia hạn')
+      return false
+    }
+
+    const renewal = await apiJson('/api/memberships/renew', jsonRequest({
+      customerId,
+      planId,
+      paymentMethod,
+    }))
+    if (!renewal.success) {
+      notifyError(renewal.error || 'Không gia hạn được hội viên')
+      return false
+    }
+
+    return createSession(customerId)
+  }
+
+  const handleConfirm = async () => {
+    if (!shiftReady) {
+      notifyError('Cần mở ca trước khi check-in')
+      return
+    }
+
+    if (mode === 'WALK_IN' && !pricingReady) {
+      notifyError('Chưa có bảng giá cho khách vãng lai')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      let ok = false
+
+      if (mode === 'WALK_IN') {
+        if (!walkInName.trim()) {
+          notifyError('Nhập tên khách vãng lai')
+          return
+        }
+        const customer = await apiJson<Customer>('/api/customers', jsonRequest({
+          fullName: walkInName.trim(),
+          type: 'WALK_IN',
+        }))
+        if (!customer.success || !customer.data) {
+          notifyError(customer.error || 'Không tạo được khách')
+          return
+        }
+        ok = await createSession(customer.data.id)
+      } else if (newMember) {
+        if (!newMemberName.trim()) {
+          notifyError('Nhập tên hội viên')
+          return
+        }
+        const customer = await apiJson<Customer>('/api/customers', jsonRequest({
+          fullName: newMemberName.trim(),
+          phone: newMemberPhone.trim(),
+          type: 'MEMBER',
+        }))
+        if (!customer.success || !customer.data) {
+          notifyError(customer.error || 'Không tạo được hội viên')
+          return
+        }
+        ok = await renewThenCheckIn(customer.data.id)
+      } else if (selectedMember) {
+        ok = membershipActive
+          ? await createSession(selectedMember.id)
+          : await renewThenCheckIn(selectedMember.id)
+      } else {
+        notifyError('Chọn hội viên để check-in')
+        return
+      }
+
+      if (ok) {
+        notifySuccess('Check-in thành công')
+        await onDone()
+      }
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  const needsRenewal = mode === 'MEMBER' && (newMember || (selectedMember && !membershipActive))
+  const selectedPlan = membershipPlans.find((plan) => plan.id === planId)
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Check-in"
+      description={mode === 'WALK_IN' ? 'Khách vãng lai tính tiền theo giờ' : 'Hội viên cần còn hạn trước khi chơi'}
+      footer={
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={submitting || !shiftReady}
+          onClick={handleConfirm}
+        >
+          {submitting
+            ? 'Đang xử lý...'
+            : needsRenewal
+              ? 'Gia hạn & check-in'
+              : 'Check-in'}
+        </Button>
+      }
+      size="lg"
+    >
+      <div className="space-y-4">
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setMode('WALK_IN')}
+            className={`rounded-xl border p-3 text-left ${
+              mode === 'WALK_IN'
+                ? 'border-emerald-300 bg-emerald-50 dark:border-emerald-500/30 dark:bg-emerald-500/10'
+                : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
+            }`}
+          >
+            <Users size={18} className="text-emerald-600" />
+            <p className="mt-2 text-sm font-semibold text-zinc-950 dark:text-white">Vãng lai</p>
+          </button>
+          <button
+            type="button"
+            onClick={() => setMode('MEMBER')}
+            className={`rounded-xl border p-3 text-left ${
+              mode === 'MEMBER'
+                ? 'border-purple-300 bg-purple-50 dark:border-purple-500/30 dark:bg-purple-500/10'
+                : 'border-zinc-200 bg-white dark:border-zinc-800 dark:bg-zinc-900'
+            }`}
+          >
+            <ShieldCheck size={18} className="text-purple-600" />
+            <p className="mt-2 text-sm font-semibold text-zinc-950 dark:text-white">Hội viên</p>
+          </button>
+        </div>
+
+        {mode === 'WALK_IN' ? (
+          <div>
+            <Label htmlFor="walk-in-name" required>Tên khách</Label>
+            <Input
+              id="walk-in-name"
+              value={walkInName}
+              onChange={(event) => setWalkInName(event.target.value)}
+              placeholder="Nhập tên khách"
+            />
+            {!pricingReady && (
+              <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                Cần tạo bảng giá trước khi check-in khách vãng lai.
+              </p>
+            )}
+          </div>
+        ) : (
+          <div className="space-y-3">
+            {!newMember && (
+              <>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Search
+                      size={15}
+                      className="absolute left-3 top-1/2 -translate-y-1/2 text-zinc-400"
+                    />
+                    <Input
+                      value={memberSearch}
+                      onChange={(event) => setMemberSearch(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter') {
+                          event.preventDefault()
+                          void searchMembers()
+                        }
+                      }}
+                      className="pl-9"
+                      placeholder="Tên hoặc SĐT hội viên"
+                    />
+                  </div>
+                  <Button variant="primary" size="md" disabled={memberLoading} onClick={() => void searchMembers()}>
+                    Tìm
+                  </Button>
+                </div>
+
+                {memberResults.length > 0 && (
+                  <div className="overflow-hidden rounded-lg border border-zinc-200 dark:border-zinc-800">
+                    {memberResults.map((customer) => (
+                      <button
+                        key={customer.id}
+                        type="button"
+                        onClick={() => void loadMembership(customer)}
+                        className="flex w-full items-center justify-between gap-3 border-b border-zinc-100 px-3 py-2.5 text-left last:border-b-0 hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-800"
+                      >
+                        <div>
+                          <p className="text-sm font-medium text-zinc-950 dark:text-white">
+                            {customer.fullName}
+                          </p>
+                          <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                            {customer.phone || 'Chưa có SĐT'}
+                          </p>
+                        </div>
+                        <Badge variant="purple" size="sm">HV</Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {selectedMember && (
+                  <div className="rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+                    <div className="flex items-start justify-between gap-3">
+                      <div>
+                        <p className="text-sm font-semibold text-zinc-950 dark:text-white">
+                          {selectedMember.fullName}
+                        </p>
+                        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                          {membershipActive && currentMembership
+                            ? `Còn hạn đến ${formatDay(currentMembership.expiresAt)}`
+                            : 'Cần gia hạn trước khi chơi'}
+                        </p>
+                      </div>
+                      <Badge variant={membershipActive ? 'success' : 'warning'}>
+                        {membershipActive ? 'Còn hạn' : 'Hết hạn'}
+                      </Badge>
+                    </div>
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={() => {
+                    setNewMember(true)
+                    setSelectedMember(null)
+                    setCurrentMembership(null)
+                  }}
+                  className="inline-flex items-center gap-1 text-xs font-medium text-blue-600 dark:text-blue-300"
+                >
+                  <UserPlus size={14} />
+                  Tạo hội viên mới
+                </button>
+              </>
+            )}
+
+            {newMember && (
+              <div className="space-y-3 rounded-xl border border-blue-200 bg-blue-50 p-3 dark:border-blue-500/20 dark:bg-blue-500/10">
+                <div>
+                  <Label htmlFor="new-member-name" required>Tên hội viên</Label>
+                  <Input
+                    id="new-member-name"
+                    value={newMemberName}
+                    onChange={(event) => setNewMemberName(event.target.value)}
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="new-member-phone">Số điện thoại</Label>
+                  <Input
+                    id="new-member-phone"
+                    value={newMemberPhone}
+                    onChange={(event) => setNewMemberPhone(event.target.value)}
+                  />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setNewMember(false)}
+                  className="text-xs font-medium text-zinc-600 dark:text-zinc-300"
+                >
+                  Quay lại tìm hội viên
+                </button>
+              </div>
+            )}
+
+            {needsRenewal && (
+              <div className="space-y-3 rounded-xl border border-amber-200 bg-amber-50 p-3 dark:border-amber-500/20 dark:bg-amber-500/10">
+                <div>
+                  <Label htmlFor="membership-plan" required>Gói hội viên</Label>
+                  <Select
+                    id="membership-plan"
+                    value={planId}
+                    onChange={(event) => setPlanId(event.target.value)}
+                  >
+                    {membershipPlans.map((plan) => (
+                      <option key={plan.id} value={plan.id}>
+                        {plan.name} - {money(plan.price)}
+                      </option>
+                    ))}
+                  </Select>
+                </div>
+                <div>
+                  <Label htmlFor="renew-payment">Thanh toán phí hội viên</Label>
+                  <Select
+                    id="renew-payment"
+                    value={paymentMethod}
+                    onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
+                  >
+                    <option value="CASH">Tiền mặt</option>
+                    <option value="TRANSFER">Chuyển khoản</option>
+                    <option value="CARD">Thẻ</option>
+                  </Select>
+                </div>
+                {selectedPlan && (
+                  <div className="flex justify-between text-sm">
+                    <span className="text-zinc-600 dark:text-zinc-300">Phí hội viên</span>
+                    <span className="font-semibold text-zinc-950 dark:text-white">
+                      {money(selectedPlan.price)}
+                    </span>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+function CheckoutDrawer({
+  session,
+  products,
+  shiftReady,
+  submitting,
+  setSubmitting,
+  onClose,
+  onDone,
+}: {
+  session: SessionRow | null
+  products: Product[]
+  shiftReady: boolean
+  submitting: boolean
+  setSubmitting: (value: boolean) => void
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const { success: notifySuccess, error: notifyError } = useToast()
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
+  const [cart, setCart] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    if (session) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setPaymentMethod('CASH')
+      setCart({})
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [session])
+
+  const isMember = session?.customer.type === 'MEMBER'
+  const playSubtotal = session
+    ? isMember
+      ? 0
+      : calcCurrentPlayCost(session.startTime, session.hourlyRate)
+    : 0
+
+  const cartLines = products
+    .map((product) => ({
+      product,
+      quantity: cart[product.id] ?? 0,
+      total: (cart[product.id] ?? 0) * toNumber(product.price),
+    }))
+    .filter((line) => line.quantity > 0)
+
+  const productSubtotal = cartLines.reduce((sum, line) => sum + line.total, 0)
+  const grandTotal = playSubtotal + productSubtotal
+
+  const changeCart = (product: Product, delta: number) => {
+    setCart((current) => {
+      const currentQuantity = current[product.id] ?? 0
+      const nextQuantity = currentQuantity + delta
+      if (nextQuantity <= 0) {
+        const next = { ...current }
+        delete next[product.id]
+        return next
+      }
+      if (product.type === 'PRODUCT' && nextQuantity > product.stockQuantity) return current
+      return { ...current, [product.id]: nextQuantity }
+    })
+  }
+
+  const handleCheckout = async () => {
+    if (!session) return
+    if (!shiftReady) {
+      notifyError('Cần mở ca trước khi thu tiền')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const data = await apiJson(`/api/sessions/${session.id}/checkout`, jsonRequest({
+        paymentMethod,
+        items: cartLines.map((line) => ({
+          productId: line.product.id,
+          quantity: line.quantity,
+        })),
+      }))
+
+      if (!data.success) {
+        notifyError(data.error || 'Không checkout được')
+        return
+      }
+
+      notifySuccess(`Đã thu ${money(grandTotal)}`)
+      await onDone()
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={!!session}
+      onClose={onClose}
+      title={session ? `Thu tiền - ${session.customer.fullName}` : 'Thu tiền'}
+      description={session ? `${isMember ? 'Hội viên' : 'Vãng lai'} · ${calcElapsedHMS(session.startTime)}` : undefined}
+      size="lg"
+      footer={
+        <Button
+          variant="inverse"
+          size="lg"
+          fullWidth
+          disabled={submitting || !shiftReady}
+          onClick={handleCheckout}
+        >
+          {submitting ? 'Đang thu tiền...' : 'Thu tiền & kết thúc'}
+        </Button>
+      }
+    >
+      {session && (
+        <div className="space-y-4">
+          <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+            <InvoiceRow
+              label={isMember ? 'Giờ chơi hội viên' : 'Giờ chơi vãng lai'}
+              value={money(playSubtotal)}
+            />
+            {cartLines.map((line) => (
+              <InvoiceRow
+                key={line.product.id}
+                label={`${line.product.name} x${line.quantity}`}
+                value={money(line.total)}
+              />
+            ))}
+            <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
+              <InvoiceRow label="Tổng thu" value={money(grandTotal)} strong />
+            </div>
+          </div>
+
+          <div>
+            <Label htmlFor="payment-method">Phương thức thanh toán</Label>
+            <Select
+              id="payment-method"
+              value={paymentMethod}
+              onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
+            >
+              <option value="CASH">{paymentMethodLabel('CASH')}</option>
+              <option value="TRANSFER">{paymentMethodLabel('TRANSFER')}</option>
+              <option value="CARD">{paymentMethodLabel('CARD')}</option>
+            </Select>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <Label>Đồ uống / dịch vụ</Label>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {cartLines.length} món
+              </span>
+            </div>
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {products.length === 0 ? (
+                <p className="rounded-lg bg-zinc-50 p-3 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+                  Chưa có sản phẩm hoặc dịch vụ.
+                </p>
+              ) : (
+                products.map((product) => {
+                  const quantity = cart[product.id] ?? 0
+                  const outOfStock = product.type === 'PRODUCT' && product.stockQuantity <= 0
+                  return (
+                    <div
+                      key={product.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-zinc-950 dark:text-white">
+                          {product.name}
+                        </p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {money(product.price)}
+                          {product.type === 'PRODUCT' ? ` · còn ${product.stockQuantity}` : ' · dịch vụ'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => changeCart(product, -1)}
+                          disabled={quantity === 0}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-5 text-center text-sm tabular-nums text-zinc-950 dark:text-white">
+                          {quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => changeCart(product, 1)}
+                          disabled={outOfStock}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-950 text-white disabled:opacity-40 dark:bg-white dark:text-zinc-950"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function InvoiceRow({
+  label,
+  value,
+  strong,
+}: {
+  label: string
+  value: string
+  strong?: boolean
+}) {
+  return (
+    <div className={`flex justify-between gap-3 text-sm ${strong ? 'font-semibold' : ''}`}>
+      <span className={strong ? 'text-zinc-950 dark:text-white' : 'text-zinc-500 dark:text-zinc-400'}>
+        {label}
+      </span>
+      <span className="tabular-nums text-zinc-950 dark:text-white">{value}</span>
+    </div>
+  )
+}

@@ -1,19 +1,20 @@
 // ── GET /api/auth/me ────────────────────────────────────
 import { NextResponse } from "next/server";
-import { verifySession } from "@/lib/auth";
+import { requireAuth } from "@/lib/auth";
 
 export async function GET() {
-  const session = await verifySession();
-
-  if (!session) {
+  try {
+    const session = await requireAuth();
+    return NextResponse.json(
+      {
+        success: true,
+        data: session,
+      }
+    );
+  } catch {
     return NextResponse.json(
       { success: false, error: "Chưa đăng nhập" },
       { status: 401 }
     );
   }
-
-  return NextResponse.json({
-    success: true,
-    data: session,
-  });
 }

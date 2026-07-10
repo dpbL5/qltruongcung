@@ -1,3 +1,5 @@
+@AGENTS.md
+
 # QL Trường Cung — Archery Range POS System
 
 ## Tổng quan dự án
@@ -8,9 +10,24 @@ QL Trường Cung ("Quản lý trường cung") là hệ thống **POS (Point of
 
 | Nhóm | Mô tả |
 |------|-------|
-| **Khách vãng lai** | Check-in, bắn theo giờ, gọi đồ uống/dịch vụ |
-| **Khách hội viên** | Như vãng lai + đăng ký hội viên, lịch sử chơi |
-| **Quản trị viên** | Quản lý hội viên, báo cáo doanh thu, nhân viên |
+| **Khách vãng lai** | Check-in từng người, chơi tính tiền theo giờ, có thể áp khuyến mãi, gọi đồ uống/dịch vụ |
+| **Khách hội viên** | Đóng phí hội viên theo tháng, còn hạn thì check-in/out không tính tiền giờ, vẫn có thể mua đồ uống/dịch vụ |
+| **Quản trị viên** | Quản lý hội viên, bảng giá, tồn kho, ca làm, báo cáo doanh thu, nhân viên |
+
+## Quyết định nghiệp vụ đã chốt
+
+Các rule dưới đây là nguồn sự thật cho những lần phát triển tiếp theo:
+
+1. **Một phiên check-in chỉ có 1 người**. Không tạo group session, `SessionParticipant`, checkout nhóm, hay bill nhóm trừ khi yêu cầu thay đổi.
+2. **Khách vãng lai (`WALK_IN`)**: tính tiền chơi theo giờ từ lúc check-in đến checkout, có thể áp khuyến mãi.
+3. **Khách hội viên (`MEMBER`)**: đóng phí hội viên hàng tháng; khi còn hạn thì tới chơi chỉ check-in/out, không tính tiền giờ.
+4. **Hội viên hết hạn**: tại check-in phải hiển thị lựa chọn gia hạn để chơi. Sau khi đóng phí/gia hạn thành công mới tạo phiên chơi hội viên.
+5. **Gia hạn hội viên**:
+   - Nếu còn hạn và đóng tiếp: kỳ mới bắt đầu sau `expiresAt` hiện tại.
+   - Nếu đã hết hạn và quay lại sau: kỳ mới bắt đầu từ ngày đóng phí.
+6. **Đồ uống/dịch vụ cần quản lý tồn kho**. `Product.type = PRODUCT` có tồn kho và phải phát sinh `StockMovement`; `Product.type = SERVICE` không quản lý tồn kho.
+7. **Có ca làm**. Ca làm là ca quầy chung: một `Shift` đang mở có thể có nhiều nhân viên tham gia qua `ShiftParticipant`; `Shift.staffId` là người mở/trưởng ca, còn từng `Invoice`/`Payment`/`Session` vẫn ghi `staffId` của người thao tác. Các hành động thu tiền phải gắn với `Shift` đang mở để đối soát cuối ca. Mỗi ca phải quản lý được danh sách hóa đơn/đơn hàng phát sinh trong ca dựa trên `Invoice` + `InvoiceItem` + `Payment`, không tạo thêm `Order` model nếu chưa có yêu cầu mới.
+8. **Chưa cần thanh toán gộp bill nhóm**. Thiết kế không cần split bill hoặc group bill ở giai đoạn này.
 
 ## Tech Stack
 
@@ -36,21 +53,28 @@ src/
 │   │   └── login/              # Trang đăng nhập
 │   ├── (dashboard)/            # Route group: protected (cần login)
 │   │   ├── layout.tsx          # Sidebar (desktop) + Header (mobile) + BottomNav (mobile) + ToastProvider
-│   │   ├── page.tsx            # Dashboard — stats + active sessions
-│   │   ├── sessions/           # Check-in, checkout, phiên bắn
-│   │   ├── customers/          # CRUD khách hàng
+│   │   ├── page.tsx            # Redirect về /sessions để nhân viên vào thẳng ca hôm nay
+│   │   ├── sessions/           # Ca hôm nay: mở ca, check-in, checkout, bán kèm
+│   │   ├── shifts/             # Quản lý ca làm, lịch sử ca, chi tiết đơn hàng theo ca
+│   │   ├── customers/          # Hội viên: tìm, trạng thái, đăng ký, gia hạn
+│   │   ├── inventory/          # Tồn kho quầy: sản phẩm/dịch vụ đang bán
 │   │   ├── staff/              # Quản lý nhân viên (admin only)
 │   │   ├── reports/            # Báo cáo doanh thu + export
-│   │   └── settings/           # Theme + system info
+│   │   └── settings/           # Tab Thêm: lối tắt, theme, trạng thái hệ thống, đăng xuất
 │   ├── api/                    # REST API (Route Handlers)
 │   │   ├── auth/               # login, logout, me
 │   │   ├── customers/          # CRUD khách hàng
 │   │   ├── sessions/           # CRUD phiên bắn + checkout
 │   │   ├── users/              # CRUD nhân viên
 │   │   ├── reports/            # dashboard, revenue, export
+│   │   ├── pricing/            # Bảng giá giờ chơi
+│   │   ├── membership-plans/   # Gói hội viên
+│   │   ├── memberships/        # Lịch sử/gia hạn hội viên
+│   │   ├── shifts/             # Mở/đóng/quản lý ca làm, chi tiết hóa đơn theo ca
+│   │   ├── products/           # Sản phẩm/dịch vụ và tồn kho
 │   │   └── seed/               # Seed database
-│   ├── layout.tsx              # Root layout (html, body)
-│   └── proxy.ts                # Auth route protection (Next.js 16)
+│   └── layout.tsx              # Root layout (html, body)
+├── proxy.ts                    # Auth route protection cho dashboard routes (Next.js 16)
 ├── components/                 # Shared UI components
 │   ├── ui/                     # Primitives
 │   │   ├── badge.tsx           # Badge (7 variants, 2 sizes)
@@ -69,14 +93,27 @@ src/
 ├── lib/                        # Business logic (server-side)
 │   ├── prisma.ts               # Prisma client singleton
 │   ├── auth.ts                 # JWT auth (jose — encrypt/decrypt)
-│   ├── pricing.ts              # Pricing engine (tính giá theo giờ)
+│   ├── pricing.ts              # Pricing engine: vãng lai tính giờ, hội viên còn hạn = 0đ tiền giờ
+│   ├── business/               # Use-case helpers: memberships, shifts, invoices, audit
 │   ├── utils.ts                # Helpers (formatVND, formatHours, calcHours, today, getDayType, getPeakType)
 │   └── validations/            # Zod schemas
 │       ├── auth.ts
 │       ├── customer.ts
-│       └── session.ts
+│       ├── session.ts
+│       ├── pricing.ts
+│       ├── membership.ts
+│       ├── product.ts
+│       └── shift.ts
 ├── hooks/
 │   └── use-theme.ts            # Theme hook (light | dark | system)
+├── features/
+│   ├── inventory/              # Mobile-first kho quầy: InventoryScreen, create/stock movement dialogs
+│   ├── memberships/            # Mobile-first hội viên: MemberScreen, register/renew dialogs
+│   ├── more/                   # Mobile-first tab Thêm: MoreScreen, shortcuts, preferences, logout
+│   ├── pos/                    # Mobile-first POS: TodayShiftScreen, checkout drawer, helpers
+│   ├── pricing/                # Mobile-first quản trị bảng giá: PricingScreen, rule guards
+│   ├── reports/                # Mobile-first báo cáo: ReportsScreen, đối soát ca/ngày
+│   └── shifts/                 # Mobile-first quản lý ca: danh sách ca, chi tiết ca, đơn hàng phát sinh
 └── types/
     └── index.ts                # Shared TypeScript types + enums
 prisma/
@@ -343,7 +380,7 @@ Tất cả design tokens được định nghĩa là CSS custom properties trong
 | Text tertiary | `text-zinc-400` | `dark:text-zinc-500` | Placeholder, muted |
 | Brand / Primary | `bg-blue-600 text-white` | `dark:bg-blue-600 dark:text-white` | Nút chính, nav active |
 | Success | `text-emerald-600 bg-emerald-50` | `dark:text-emerald-400 dark:bg-emerald-500/15` | Active, thành công |
-| Warning | `text-amber-600 bg-amber-50` | `dark:text-amber-400 dark:bg-amber-500/15` | Paused, cảnh báo |
+| Warning | `text-amber-600 bg-amber-50` | `dark:text-amber-400 dark:bg-amber-500/15` | Cảnh báo |
 | Danger | `text-red-600 bg-red-50` | `dark:text-red-400 dark:bg-red-500/15` | Lỗi, disabled |
 | Purple accent | `text-purple-600 bg-purple-50` | `dark:text-purple-400 dark:bg-purple-500/15` | Member badge |
 
@@ -458,11 +495,13 @@ export async function POST(request: NextRequest) {
 | `/api/sessions` | GET, POST | Danh sách + tạo phiên bắn |
 | `/api/sessions/[id]` | GET, PUT | Chi tiết + cập nhật phiên |
 | `/api/sessions/[id]/checkout` | POST | Checkout phiên bắn |
+| `/api/shifts` | GET, POST | Xem ca hiện tại (`current=true`), ca quầy đang mở (`openOperational=true`), danh sách ca + mở/tham gia ca |
+| `/api/shifts/[id]/close` | POST | Đóng ca, lưu tiền thực đếm/chênh lệch và log người đóng ca |
 | `/api/users` | GET, POST | Danh sách + tạo nhân viên |
 | `/api/users/[id]` | PUT, PATCH | Cập nhật + đổi mật khẩu |
-| `/api/reports/dashboard` | GET | Stats dashboard (doanh thu, sessions...) |
-| `/api/reports/revenue` | GET | Doanh thu theo ngày (from/to params) |
-| `/api/reports/export` | GET | Export CSV |
+| `/api/reports/dashboard` | GET | Stats dashboard, đối soát ca hiện tại, breakdown payment/item |
+| `/api/reports/revenue` | GET | Doanh thu theo ngày (from/to params), staff thấy số liệu của mình, admin thấy toàn hệ thống |
+| `/api/reports/export` | GET | Admin export CSV doanh thu/phiên |
 | `/api/seed` | GET | Seed database |
 
 **Luật:**
@@ -501,7 +540,7 @@ export type CreateThingInput = z.infer<typeof createThingSchema>;
 
 ### 12. Auth
 
-- `proxy.ts` ở `src/app/` bảo vệ route group `(dashboard)` — redirect về `/login` nếu không có session
+- `src/proxy.ts` bảo vệ dashboard routes — redirect về `/login` nếu không có session hợp lệ
 - Session lưu trong httpOnly cookie tên `qltrungcung_session`, stateless JWT với `jose`
 - API gọi `requireAuth()` (ném `"UNAUTHORIZED"` nếu chưa login)
 - Client check auth: gọi `GET /api/auth/me` → nếu `!d.success` thì `router.push("/login")`
@@ -543,9 +582,70 @@ try {
 
 **Layout Architecture:**
 - **Desktop (≥768px)**: Fixed sidebar bên trái (`src/components/layout/sidebar.tsx`), có thể collapse (240px / 72px). State lưu trong localStorage key `qltrungcung_sidebar_collapsed`.
-- **Mobile (<768px)**: Bottom tab navigation (`src/components/layout/bottom-nav.tsx`) 5 tabs + sticky header (`src/components/layout/header.tsx`). Drawer sidebar khi tap hamburger.
+- **Mobile (<768px)**: Bottom tab navigation (`src/components/layout/bottom-nav.tsx`) đúng 5 tabs cho nhân viên: `Ca`, `Hội viên`, `Kho`, `Báo cáo`, `Thêm`. Drawer sidebar khi tap hamburger dùng chung `staffMenuItems` với desktop sidebar để không lệch menu.
 - **Main content**: Phải có `pb-16 md:pb-0` để bù cho bottom nav trên mobile.
 - **ToastProvider**: Wrap toàn bộ dashboard layout trong `layout.tsx`.
+
+**Mobile-first POS screen:**
+- `/` redirect về `/sessions`; màn đầu sau đăng nhập là `Ca hôm nay`.
+- `src/app/(dashboard)/sessions/page.tsx` chỉ render `TodayShiftScreen`; không đưa business state lớn vào page route.
+- POS UI nằm trong `src/features/pos/` để gom các state nghiệp vụ: ca làm, check-in, checkout, sản phẩm bán kèm.
+- Nếu chưa có ca mở, UI phải disable check-in/checkout và hiển thị hành động `Mở ca`.
+- Check-in hội viên phải hiển thị trạng thái membership; nếu hết hạn hoặc hội viên mới, flow phải gia hạn trước rồi mới tạo session.
+- Checkout dùng drawer hóa đơn: `PLAY_TIME` + sản phẩm/dịch vụ + phương thức thanh toán. Sản phẩm `PRODUCT` phải tôn trọng tồn kho, không cho chọn vượt tồn.
+
+**Mobile-first shift management screen:**
+- `/shifts` là màn quản lý ca làm và lịch sử ca; không thay thế `/sessions` là màn vận hành `Ca hôm nay`.
+- `src/app/(dashboard)/shifts/page.tsx` chỉ render `ShiftManagementScreen`; giữ logic UI trong `src/features/shifts/`.
+- `STAFF` chỉ xem và quản lý ca của chính mình; `ADMIN` xem toàn bộ ca và có bộ lọc theo nhân viên, trạng thái `OPEN`/`CLOSED`, ngày mở ca.
+- Danh sách ca phải hiển thị nhân viên, thời gian mở/đóng, trạng thái, tiền đầu ca, tiền mặt dự kiến, tiền thực đếm, chênh lệch, tổng doanh thu và số `giao dịch`.
+- Chi tiết ca phải có tab/khu vực `Đơn hàng` liệt kê các hóa đơn phát sinh trong ca: mã hóa đơn, thời điểm thanh toán, khách hàng/phiên chơi nếu có, nhân viên, tổng tiền, trạng thái, phương thức thanh toán và tóm tắt dòng hàng `PLAY_TIME`, `MEMBERSHIP_FEE`, `PRODUCT`, `SERVICE`.
+- Trong ngôn ngữ UI có thể gọi là `đơn hàng`, nhưng dữ liệu nghiệp vụ phải lấy từ `Invoice` + `InvoiceItem` + `Payment`. Không tạo thêm `Order` model hoặc bảng đơn hàng song song nếu chưa đổi domain model.
+- Hóa đơn phát sinh trong POS, bán sản phẩm/dịch vụ, checkout, đăng ký/gia hạn hội viên phải gắn `Invoice.shiftId` của ca đang mở; `Payment.shiftId` dùng để đối soát tiền và phải nhất quán với invoice.
+- Ca đã đóng chỉ cho xem lịch sử và đối soát. Không sửa hóa đơn/thanh toán của ca đã đóng nếu chưa có flow điều chỉnh admin có `ActivityLog`.
+
+**Mobile-first inventory screen:**
+- `/inventory` là màn `Kho quầy` cho nhân viên dùng trên điện thoại trước, không phải bảng quản trị desktop nặng.
+- `src/app/(dashboard)/inventory/page.tsx` chỉ render `InventoryScreen`; giữ logic UI trong `src/features/inventory/`.
+- Nhân viên `STAFF` được xem danh sách hàng/dịch vụ, tìm kiếm, lọc `Sắp hết`, `Hàng hóa`, `Dịch vụ` để phục vụ bán kèm khi checkout.
+- Chỉ `ADMIN` được tạo hàng hóa/dịch vụ và nhập hoặc điều chỉnh tồn kho từ UI.
+- `PRODUCT` phải hiển thị tồn hiện tại, tồn tối thiểu và trạng thái `Hết`, `Sắp hết`, `Đủ`; `SERVICE` phải hiển thị rõ là không quản lý tồn kho.
+- Nhập kho (`RESTOCK`) phải là số dương. Điều chỉnh (`ADJUSTMENT`) có thể tăng hoặc giảm nhưng không được làm tồn kho âm.
+- Mọi thay đổi tồn kho phải đi qua `POST /api/products/[id]/stock`, tạo `StockMovement` và `ActivityLog`; không sửa trực tiếp `Product.stockQuantity` từ UI.
+
+**Mobile-first membership screen:**
+- `/customers` hiện là màn `Hội viên`, không còn là CRUD khách chung.
+- `src/app/(dashboard)/customers/page.tsx` chỉ render `MemberScreen`.
+- Hội viên được phân nhóm bằng trạng thái server trả về: `ACTIVE`, `EXPIRED`, `NONE`.
+- Đăng ký hội viên mới phải dùng `POST /api/memberships/register` để tạo customer + membership + invoice/payment trong cùng transaction.
+- Gia hạn dùng `POST /api/memberships/renew`; backend và UI đều yêu cầu có `Shift` đang mở vì đây là giao dịch thu tiền.
+- UI không tạo hồ sơ `MEMBER` trống nếu chưa thu phí, trừ khi có yêu cầu nghiệp vụ mới.
+
+**Mobile-first reports screen:**
+- `/reports` là màn `Báo cáo` cho đối soát nhanh trên điện thoại, không phải dashboard bảng biểu desktop.
+- `src/app/(dashboard)/reports/page.tsx` chỉ render `ReportsScreen`; giữ logic UI trong `src/features/reports/`.
+- `STAFF` xem doanh thu/giao dịch của chính tài khoản hoặc ca của mình; `ADMIN` xem toàn hệ thống và có quyền export CSV.
+- Số liệu doanh thu phải lấy từ `Payment`/`InvoiceItem`; không cộng doanh thu trực tiếp từ `Session.totalAmount` nếu cần đối soát tiền.
+- Màn báo cáo phải hiển thị ca hiện tại nếu có: tiền đầu ca, tiền mặt thu, tiền mặt dự kiến, số giao dịch, đang chơi, đã checkout.
+- Breakdown cần tách `PLAY_TIME`, `MEMBERSHIP_FEE`, `PRODUCT`, `SERVICE` và phương thức thanh toán `CASH`, `TRANSFER`, `CARD`.
+- Nhãn UI dùng `giao dịch` cho payment count, vì phí hội viên cũng là khoản thu nhưng không nhất thiết là một phiên chơi.
+
+**Mobile-first more/settings screen:**
+- `/settings` là tab `Thêm` trong mobile bottom nav, không còn là trang cài đặt đơn thuần.
+- `src/app/(dashboard)/settings/page.tsx` chỉ render `MoreScreen`; giữ logic UI trong `src/features/more/`.
+- Tab `Thêm` hiển thị tài khoản hiện tại, trạng thái ca, tiền đầu ca, cảnh báo bảng giá/kho và các lối tắt vận hành.
+- `STAFF` thấy lối tắt vận hành và trạng thái hệ thống; `ADMIN` thấy thêm khu vực quản trị như `Bảng giá`, `Nhân viên`.
+- Theme switching và đăng xuất nằm trong tab này để nhân viên không phải tìm trong desktop sidebar.
+- Màn này chỉ đọc trạng thái nhẹ từ API hiện có; không tạo nghiệp vụ mới hoặc sửa trực tiếp dữ liệu tài chính.
+
+**Mobile-first pricing screen:**
+- `/pricing` là màn admin quản trị bảng giá giờ chơi vãng lai; route page chỉ render `PricingScreen`.
+- Logic UI nằm trong `src/features/pricing/`; không đặt state/form lớn trong route page.
+- `STAFF` không được sửa bảng giá; `ADMIN` được tạo/sửa/xóa quy tắc.
+- Quy tắc phải có `hourTo > hourFrom` nếu có giờ kết thúc, `ratePerHour > 0`, và `effectiveTo >= effectiveFrom` nếu có ngày hết hiệu lực.
+- Check-in khách vãng lai cần quy tắc giá đang hiệu lực cho đúng `dayType`, `peakType`, khung giờ hiện tại; không fallback sang giá mặc định.
+- `GET /api/pricing/status` trả `activeCount`; POS và tab `Thêm` phải dùng `activeCount` để cảnh báo khả năng check-in khách vãng lai.
+- Tạo/sửa/xóa bảng giá phải ghi `ActivityLog` vì ảnh hưởng doanh thu.
 
 **Toast notification (dùng thay inline feedback):**
 ```tsx
@@ -689,48 +789,136 @@ npx prisma studio        # Prisma Studio (DB GUI)
 8. **Light + Dark mode**: Hỗ trợ cả 2 theme. Mặc định theo system preference. Dùng `dark:` prefix trong Tailwind. Test cả 2 theme trước khi commit.
 9. **Không tự định nghĩa lại utils/types**: Luôn import `formatVND` từ `@/lib/utils` và types từ `@/types`. Không copy-paste function/interface giữa các file.
 10. **Error message tiếng Việt**: Tất cả message hiển thị cho người dùng cuối phải bằng tiếng Việt.
+11. **Một session = một người**: Không thêm mô hình nhóm/người tham gia trong phiên nếu chưa có yêu cầu mới.
+12. **Hội viên không tính tiền giờ**: Không dùng discount cố định cho hội viên. Hội viên còn hạn có tiền chơi = `0đ`; doanh thu hội viên đến từ phí tháng và các sản phẩm/dịch vụ mua thêm.
+13. **Invoice-first cho POS**: Các phát sinh tiền nên đi qua `Invoice` + `InvoiceItem` + `Payment`, không gắn trực tiếp mọi payment vào `Session`.
+14. **Tồn kho và ca làm là nghiệp vụ bắt buộc**: Bán hàng phải trừ kho qua `StockMovement`; thu tiền nên gắn với `Shift` đang mở. Backend hiện đã tự gắn ca đang mở nếu có; khi UI mở/đóng ca hoàn thiện, phải chặn thu tiền nếu không có ca.
+15. **Quản lý ca phải xem được đơn hàng phát sinh**: Chi tiết mỗi `Shift` phải truy xuất được các `Invoice` thuộc ca đó, kèm dòng hàng và thanh toán. UI có thể gọi là `đơn hàng`, nhưng không tách khỏi mô hình invoice-first.
 
 ## Domain Knowledge
 
 ### Luồng chính của POS
 
 ```
-Check-in (thủ công)                             Check-out
-─────────────────────                           ─────────
-1. Khách tới                                    5. Chọn phiên → Check-out
-2. NV hỏi vãng lai / hội viên                   6. Hệ thống tính tổng tiền:
-   - Vãng lai → nhập tên → tạo session             - Giờ chơi × đơn giá
-   - Hội viên → tra cứu hoặc tạo mới               - Volume discount (theo tổng giờ)
-3. Bắt đầu tính giờ                                - Customer type discount
-4. Trong lúc bắn:                               7. Chọn phương thức thanh toán
-   - Xem đồng hồ realtime (hh:mm:ss)             8. Lưu payment vào DB
-   - Thành tiền cập nhật realtime
+Mở ca                                        Check-in
+──────                                       ────────
+1. Nhân viên mở ca                           3. Chọn 1 khách duy nhất
+2. Nhập tiền mặt đầu ca                      4. Xác định vãng lai / hội viên
+
+Khách vãng lai                               Hội viên
+──────────────                               ────────
+5a. Tạo session ACTIVE                       5b. Kiểm tra membership còn hạn
+6a. Snapshot giá giờ nếu cần                 6b. Nếu hết hạn → gia hạn trước
+7a. Đồng hồ realtime                         7b. Tạo session ACTIVE, tiền giờ = 0đ
+
+Trong lúc chơi                               Check-out
+──────────────                               ─────────
+8. Có thể gọi đồ uống/dịch vụ                9. Tạo invoice
+                                              - Vãng lai: PLAY_TIME + sản phẩm/dịch vụ
+                                              - Hội viên: sản phẩm/dịch vụ, tiền giờ = 0đ
+                                             10. Trừ kho cho sản phẩm có tồn
+                                             11. Thu tiền, ghi payment, đóng session
+                                             12. Cuối ca đối soát theo Shift
+                                             13. Vào chi tiết ca xem các hóa đơn/đơn hàng phát sinh
 ```
+
+### Luồng quản lý ca làm
+
+1. Nhân viên mở ca từ `Ca hôm nay`; hệ thống lưu `openingCash`, `openedAt`, `staffId` của người mở ca và tạo `ShiftParticipant(role=LEAD)`.
+2. Nếu đã có ca quầy đang mở, nhân viên thứ hai bấm `Tham gia ca` sẽ được thêm vào `ShiftParticipant(role=STAFF)` của ca đó thay vì tạo ca riêng; UI không được yêu cầu nhập lại tiền mặt đầu ca.
+3. Trong ca, mọi nghiệp vụ phát sinh tiền phải tạo `Invoice` và `Payment` gắn với `shiftId` của ca đang mở: checkout phiên chơi, bán sản phẩm/dịch vụ, đăng ký hoặc gia hạn hội viên. `staffId` trên từng bản ghi vẫn là người thao tác để truy vết trách nhiệm.
+4. Màn `/shifts` hiển thị lịch sử ca. `STAFF` chỉ thấy ca mình đã mở hoặc đã tham gia; `ADMIN` có thể xem tất cả, lọc theo nhân viên, trạng thái và ngày.
+5. Chi tiết một ca hiển thị tổng quan đối soát, danh sách nhân viên tham gia và danh sách `Đơn hàng` lấy từ `Invoice` thuộc ca đó. Mỗi dòng cần cho biết mã hóa đơn, khách hàng/phiên chơi, thời điểm thanh toán, tổng tiền, phương thức thanh toán, nhân viên thao tác và tóm tắt invoice items.
+6. Đóng ca tổng hợp payment theo phương thức, tính tiền mặt kỳ vọng và lưu tiền mặt thực đếm/chênh lệch. Admin hoặc nhân viên đang tham gia ca có thể đóng ca; khi đóng, tất cả participant đang mở được đánh dấu rời ca và `ActivityLog(SHIFT_CLOSE)` phải ghi rõ người đóng ca. Sau khi đóng ca, chỉ được xem lịch sử trừ khi có flow điều chỉnh admin có audit.
 
 ### Check-in flow (2-step modal)
 
 **Step 1 — Chọn loại khách:**
 - **Vãng lai**: Nhập tên → Tiếp tục
-- **Hội viên**: Tìm theo tên/SĐT hoặc tạo hội viên mới → Tiếp tục
+- **Hội viên**: Tìm theo tên/SĐT → kiểm tra membership còn hạn
+- **Hội viên hết hạn**: Hiển thị lựa chọn "Gia hạn hội viên" trước khi cho check-in
 
 **Step 2 — Xác nhận:**
-- Hiển thị summary (tên, loại KH, trạng thái)
-- Nhấn "Xác nhận Check-in" → `POST /api/customers` (nếu cần) → `POST /api/sessions`
+- Hiển thị summary (tên, loại KH, trạng thái hội viên, trạng thái ca làm)
+- Nhấn "Xác nhận Check-in" → tạo session trong transaction/use-case
+- Bắt buộc nhân viên đang tham gia ca mở; session phải gắn `shiftId` của ca đó trước khi thao tác POS
+- Không tạo session hội viên nếu membership hết hạn mà chưa gia hạn
 
 ### Cách tính giá (Pricing Engine)
 
-1. **Base rate**: từ PricingRule (theo ngày thường/cuối tuần/lễ + peak/off-peak), fallback 150.000đ/h
-2. **Volume discount**: giảm theo tổng giờ chơi
-3. **Customer type discount**: Hội viên -5%
-4. **Grand total** = (hours × effectiveRate) - discounts
-5. **Thành tiền realtime** (trong phiên ACTIVE): `Math.ceil(elapsedHours × hourlyRate / 10000) × 10000`
+1. **Chỉ khách vãng lai tính tiền giờ**: `PLAY_TIME = elapsedHours × hourlyRate`, có thể áp `PromotionRule`.
+2. **Hội viên còn hạn không tính tiền giờ**: không dùng `MEMBER_DISCOUNT_PERCENT`; tiền chơi của hội viên là `0đ`.
+3. **Hội viên hết hạn**: phải gia hạn trước khi check-in như hội viên. Nếu sản phẩm sau này cho phép chuyển sang vãng lai, cần yêu cầu nghiệp vụ rõ.
+4. **Membership fee là doanh thu riêng**: phí tháng được ghi bằng invoice item `MEMBERSHIP_FEE`, không trộn với tiền giờ.
+5. **Đồ uống/dịch vụ là invoice item riêng**: `PRODUCT`/`SERVICE`; sản phẩm có tồn kho phải trừ kho qua `StockMovement`.
+6. **Checkout tạo invoice**: tổng tiền = tiền chơi vãng lai + sản phẩm/dịch vụ + phí hội viên nếu có - khuyến mãi.
+7. **Thành tiền realtime**: chỉ hiển thị tiền giờ realtime cho khách vãng lai. Với hội viên, hiển thị trạng thái "Hội viên còn hạn" và tiền giờ `0đ`.
+
+### Luồng gia hạn hội viên
+
+1. Chọn hội viên và gói hội viên.
+2. Nếu membership còn hạn: `periodStart = current.expiresAt`, `periodEnd = periodStart + durationMonths`.
+3. Nếu membership đã hết hạn: `periodStart = paidAt`, `periodEnd = paidAt + durationMonths`.
+4. Tạo `MembershipPayment`, tạo kỳ `Membership` mới, tạo `Invoice`/`Payment`, gắn với `Shift` đang mở nếu có.
+5. Sau khi gia hạn thành công, cho phép check-in hội viên.
 
 ### Database Schema
 
-**Models chính:**
+**Models đã triển khai:**
 - **User** — Nhân viên (ADMIN | STAFF), có isActive flag
-- **Customer** — Khách hàng (WALK_IN | MEMBER), tổng giờ chơi + tổng tiền
-- **Session** — Phiên bắn (ACTIVE → PAUSED → COMPLETED), startTime, hourlyRate, totalAmount...
-- **Payment** — Giao dịch thanh toán (1-1 với Session), paymentMethod, grandTotal
-- **PricingRule** — Bảng giá theo dayType + peakType + khung giờ
-- **ActivityLog** — Nhật ký hoạt động
+- **Customer** — Khách hàng (WALK_IN | MEMBER), hồ sơ khách, tổng giờ chơi + tổng tiền
+- **Session** — Phiên bắn của đúng 1 khách (ACTIVE → COMPLETED/CANCELLED), có thể gắn `membershipId` và `shiftId`
+- **PricingRule** — Bảng giá theo dayType + peakType + khung giờ cho khách vãng lai
+- **MembershipPlan** — Gói hội viên, phí tháng, thời hạn theo tháng, trạng thái active
+- **Membership** — Kỳ hội viên của khách, startsAt, expiresAt, status
+- **MembershipPayment** — Lịch sử đóng/gia hạn phí hội viên
+- **Invoice** — Chứng từ thanh toán cho session/membership/sản phẩm/dịch vụ; được dùng như “đơn hàng” trong UI quản lý ca
+- **InvoiceItem** — Dòng hóa đơn: PLAY_TIME, PRODUCT, SERVICE, MEMBERSHIP_FEE, DISCOUNT
+- **Payment** — Thanh toán invoice-first; `invoiceId` nullable để tương thích dữ liệu cũ, `sessionId` nullable cho phí hội viên độc lập
+- **Shift** — Ca quầy chung: mở ca, đóng ca, tiền mặt đầu ca, tiền mặt kỳ vọng, tiền mặt thực đếm, chênh lệch, danh sách invoice/payment phát sinh trong ca; `staffId` là người mở ca
+- **ShiftParticipant** — Nhân viên tham gia ca chung, gồm `LEAD`/`STAFF`, thời điểm vào ca và rời ca
+- **Product** — Sản phẩm/dịch vụ bán tại quầy; `PRODUCT` quản lý tồn, `SERVICE` không quản lý tồn
+- **StockMovement** — Nhập kho, bán hàng, điều chỉnh, huỷ giao dịch
+- **PromotionRule** — Schema khuyến mãi đã có, chưa có UI/API áp dụng vào checkout
+- **ActivityLog** — Nhật ký hoạt động cho hành động tài chính hoặc thay đổi dữ liệu nhạy cảm
+
+**API nghiệp vụ đã triển khai:**
+- `POST /api/sessions`: check-in 1 khách; hội viên phải có membership còn hạn; vãng lai snapshot giá giờ.
+- `POST /api/sessions/[id]/checkout`: checkout tạo `Invoice`, `InvoiceItem(PLAY_TIME)`, `Payment`, cập nhật session/customer.
+- `GET/POST /api/membership-plans`: danh sách/tạo gói hội viên.
+- `GET /api/memberships`: lịch sử hội viên, có `current` cho membership đang hiệu lực.
+- `POST /api/memberships/register`: đăng ký hội viên mới, tạo customer + membership + invoice/payment trong một transaction.
+- `POST /api/memberships/renew`: gia hạn hội viên theo rule nối kỳ hoặc bắt đầu từ ngày đóng phí; tạo invoice/payment.
+- `GET/POST /api/shifts`: xem ca hiện tại/danh sách ca/ca quầy đang mở (`openOperational=true`), mở ca mới hoặc tham gia ca quầy đang mở.
+- `POST /api/shifts/[id]/close`: đóng ca, tính expected cash từ payment CASH và ghi `ActivityLog(SHIFT_CLOSE)` kèm người đóng ca.
+- `GET/POST /api/products`: danh sách/tạo sản phẩm hoặc dịch vụ; `POST` chỉ dành cho admin và tạo `StockMovement` tồn đầu kỳ nếu có tồn ban đầu.
+- `POST /api/products/[id]/stock`: admin nhập kho hoặc điều chỉnh kho trong transaction; chặn dịch vụ, chặn nhập kho âm, chặn tồn âm, ghi `StockMovement` + `ActivityLog`.
+
+**API cần bổ sung cho quản lý ca:**
+- `GET /api/shifts/[id]`: xem chi tiết ca, tổng hợp payment theo phương thức, tổng doanh thu, số giao dịch, số session active/completed và danh sách nhân viên tham gia ca.
+- `GET /api/shifts/[id]/orders` hoặc include trong detail: danh sách hóa đơn/đơn hàng thuộc ca từ `Invoice.shiftId`, kèm `items`, `payments`, `customer`, `session`, `staff`. `STAFF` chỉ được xem ca mình mở hoặc tham gia; `ADMIN` xem mọi ca.
+- Nếu cần lọc lịch sử ca nâng cao, mở rộng `GET /api/shifts` với `from`, `to`, `staffId`, `status`; `staffId` chỉ cho `ADMIN`.
+
+### Ràng buộc giữa các Data Model
+
+Một số model phụ thuộc vào sự tồn tại của model khác. Khi thiếu dữ liệu tiên quyết, các chức năng liên quan phải bị chặn hoặc yêu cầu xử lý trước.
+
+| Model | Phụ thuộc vào | Cơ chế |
+|-------|--------------|--------|
+| **Session** | **Customer** | Mỗi session phải có đúng 1 `customerId`. Không tạo participant list hoặc group session. |
+| **Session** | **Shift** | Session/Payment gắn `shiftId` khi nhân viên đang tham gia ca mở. UI và API phải chặn check-in/checkout nếu tài khoản chưa ở trong ca quầy đang mở. |
+| **Session (WALK_IN)** | **PricingRule** | Cần có quy tắc giá đang hiệu lực đúng ngày/giờ để tính tiền chơi. Nếu không có rule phù hợp, chặn check-in vãng lai và hiển thị hướng dẫn cập nhật bảng giá. |
+| **Session (MEMBER)** | **Membership** | Hội viên phải có membership còn hạn. Nếu hết hạn, yêu cầu gia hạn trước khi tạo session hội viên. |
+| **MembershipPayment** | **MembershipPlan + Shift** | Đóng phí phải có gói hội viên hợp lệ; tạo invoice/payment trong transaction và gắn ca nếu đang mở. |
+| **Invoice** | **Customer + Shift + optional Session** | Hóa đơn gắn khách và ca làm khi là giao dịch vận hành; `sessionId` nullable cho phí hội viên độc lập. `shiftId` chỉ nên nullable cho dữ liệu cũ hoặc nghiệp vụ phi vận hành có lý do rõ. |
+| **Product** | **StockMovement + ActivityLog** | Tạo hàng có tồn đầu kỳ hoặc nhập/chỉnh tồn phải ghi movement/audit. `SERVICE` không có tồn; `PRODUCT` không được âm. |
+| **InvoiceItem PRODUCT** | **Product + StockMovement** | Nếu `Product.type = PRODUCT`, bán hàng phải tạo stock movement và không cho tồn âm trừ khi có rule riêng. |
+| **Payment** | **Invoice + Shift** | Payment ưu tiên thanh toán cho invoice; `sessionId` chỉ còn là compatibility field cho màn phiên hiện tại. `Payment.shiftId` phải khớp `Invoice.shiftId` trong các giao dịch phát sinh trong ca. |
+| **Shift detail** | **Invoice + InvoiceItem + Payment** | Chi tiết ca phải xem được danh sách `đơn hàng` bằng cách truy vấn các invoice thuộc ca, kèm item và payment để đối soát. |
+| **Shift close** | **Payment** | Đóng ca phải tổng hợp payment theo phương thức, tính expected cash, actual cash, difference. |
+
+**Nguyên tắc**: Khi thêm model mới có quan hệ phụ thuộc, luôn:
+1. Thêm ràng buộc trong API (kiểm tra tồn tại trước khi cho phép hành động)
+2. Thêm cảnh báo trong UI (disable nút + hiển thị message hướng dẫn)
+3. Ghi nhận vào bảng này
+4. Ghi `ActivityLog` cho hành động tài chính hoặc hành động thay đổi dữ liệu nhạy cảm

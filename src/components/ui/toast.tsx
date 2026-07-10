@@ -3,7 +3,7 @@
 // ── Toast notification system ───────────────────────────
 // Dùng cho feedback sau actions (create, update, delete, error)
 
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useState, type ReactNode } from "react";
 import { CheckCircle, AlertCircle, X, XCircle } from "lucide-react";
 
 // ── Types ──────────────────────────────────────────────

@@ -1,74 +1,111 @@
-// ── Pricing Engine ─────────────────────────────────────
-import { prisma } from "@/lib/prisma";
-import { getDayType, getPeakType, calcHours } from "@/lib/utils";
-import type { CustomerType, DayType, PeakType } from "@/types";
+import { findActiveMembership } from '@/lib/business/memberships'
+import { prisma } from '@/lib/prisma'
+import { calcHours, getDayType } from '@/lib/utils'
+import type { DayType } from '@/types'
 
-// ── Constants ──────────────────────────────────────────
-const DEFAULT_HOURLY_RATE = 150000; // Fallback nếu không có PricingRule
-
-// ── Types ──────────────────────────────────────────────
 export interface PricingResult {
-  hourlyRate: number;       // Giá/giờ hiệu quả sau khi áp dụng rule
-  totalHours: number;
-  subtotal: number;          // Tiền giờ (chưa giảm giá)
-  typeDiscount: number;      // Giảm theo loại KH (student, member)
-  volumeDiscount: number;    // Giảm theo tổng giờ
-  grandTotal: number;        // Tổng thanh toán
+  hourlyRate: number
+  totalHours: number
+  subtotal: number
+  typeDiscount: number
+  volumeDiscount: number
+  grandTotal: number
+  isMemberSession: boolean
 }
 
-// ── Volume discount tiers ──────────────────────────────
-// TODO: Điều chỉnh theo yêu cầu stakeholder
-const VOLUME_TIERS = [
-  { maxHours: 1, percent: 0 },
-  { maxHours: 2, percent: 5 },
-  { maxHours: 4, percent: 10 },
-  { maxHours: Infinity, percent: 15 },
-];
-
-// ── Customer type discount ─────────────────────────────
-const MEMBER_DISCOUNT_PERCENT = 5;
-
-function getCustomerTypeDiscount(type: CustomerType): number {
-  switch (type) {
-    case "MEMBER":
-      return MEMBER_DISCOUNT_PERCENT;
-    default:
-      return 0;
-  }
-}
-
-// ── Tìm pricing rule phù hợp ───────────────────────────
 export async function findApplicableRate(
   currentHour: number,
   dayType: DayType,
-  peakType: PeakType
+  at: Date = new Date()
 ): Promise<number> {
-  // Tìm rule khớp với dayType + peakType + khoảng giờ
-  const rule = await prisma.pricingRule.findFirst({
-    where: {
-      dayType,
-      peakType,
-      hourFrom: { lte: currentHour },
-      AND: [
-        { hourTo: { gte: currentHour } },
-        { effectiveFrom: { lte: new Date() } },
-        {
-          OR: [
-            { effectiveTo: null },
-            { effectiveTo: { gte: new Date() } },
-          ],
-        },
-      ],
-    },
-  });
-
-  if (rule) return Number(rule.ratePerHour);
-
-  // Fallback về giá mặc định
-  return DEFAULT_HOURLY_RATE;
+  const rule = await findApplicablePricingRule(currentHour, dayType, at)
+  if (!rule) throw new Error('PRICING_RULE_NOT_FOUND')
+  return Number(rule.ratePerHour)
 }
 
-// ── Tính giá đầy đủ cho session ────────────────────────
+export async function countApplicablePricingRules(at: Date = new Date()): Promise<number> {
+  return prisma.pricingRule.count({
+    where: pricingRuleWhere(at.getHours(), getDayType(at), at),
+  })
+}
+
+export interface OverlapInfo {
+  id: string
+  name: string
+  daysOfWeek: number[]
+  hourFrom: number
+  hourTo: number | null
+  effectiveFrom: Date
+  effectiveTo: Date | null
+}
+
+export async function findOverlappingRules(
+  daysOfWeek: number[],
+  hourFrom: number,
+  hourTo: number | null,
+  effectiveFrom: Date,
+  effectiveTo: Date | null,
+  excludeId?: string,
+): Promise<OverlapInfo[]> {
+  const effectiveEnd = effectiveTo ?? new Date('2099-12-31')
+  const hTo = hourTo ?? 24
+  const normalizedDays = normalizeDaysOfWeek(daysOfWeek)
+
+  const rules = await prisma.pricingRule.findMany({
+    where: {
+      id: excludeId ? { not: excludeId } : undefined,
+      hourFrom: { lt: hTo },
+      OR: [
+        { hourTo: null },
+        { hourTo: { gt: hourFrom } },
+      ],
+      effectiveFrom: { lte: effectiveEnd },
+      AND: [{
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: effectiveFrom } },
+        ],
+      }],
+    },
+    select: {
+      id: true,
+      name: true,
+      daysOfWeek: true,
+      dayType: true,
+      hourFrom: true,
+      hourTo: true,
+      effectiveFrom: true,
+      effectiveTo: true,
+    },
+  })
+
+  return rules
+    .map((rule) => ({
+      ...rule,
+      daysOfWeek: resolveRuleDaysOfWeek(rule.daysOfWeek, rule.dayType),
+    }))
+    .filter((rule) => hasSharedDay(normalizedDays, rule.daysOfWeek))
+}
+
+export function deriveDayTypeFromDays(daysOfWeek: number[]): DayType {
+  const normalizedDays = normalizeDaysOfWeek(daysOfWeek)
+  return normalizedDays.length > 0 && normalizedDays.every((day) => day === 0 || day === 6)
+    ? 'WEEKEND'
+    : 'WEEKDAY'
+}
+
+export function normalizeDaysOfWeek(daysOfWeek: number[]): number[] {
+  return [...new Set(daysOfWeek)]
+    .filter((day) => Number.isInteger(day) && day >= 0 && day <= 6)
+    .sort((left, right) => left - right)
+}
+
+export function resolveRuleDaysOfWeek(daysOfWeek: number[] | null | undefined, dayType: DayType): number[] {
+  const normalizedDays = normalizeDaysOfWeek(daysOfWeek ?? [])
+  if (normalizedDays.length > 0) return normalizedDays
+  return dayType === 'WEEKEND' ? [0, 6] : [1, 2, 3, 4, 5]
+}
+
 export async function calculateSessionPrice(
   sessionId: string,
   endTime: Date
@@ -77,50 +114,99 @@ export async function calculateSessionPrice(
     where: { id: sessionId },
     include: {
       customer: true,
+      membership: true,
     },
-  });
+  })
 
-  if (!session) throw new Error("Session not found");
+  if (!session) throw new Error('SESSION_NOT_FOUND')
 
-  // 1. Tính tổng giờ
-  const totalHours = calcHours(session.startTime, endTime);
-  const currentHour = session.startTime.getHours();
-  const dayType = getDayType(session.startTime);
-  const peakType = getPeakType(session.startTime);
+  const totalHours = calcHours(session.startTime, endTime)
 
-  // 2. Tìm giá/giờ áp dụng
-  const hourlyRate =
-    Number(session.hourlyRate) ||
-    (await findApplicableRate(currentHour, dayType, peakType));
+  const activeMembership = session.membership
+    ?? (session.customer.type === 'MEMBER'
+      ? await findActiveMembership(prisma, session.customerId, session.startTime)
+      : null)
 
-  // 3. Tính subtotal (tiền giờ)
-  const subtotal = Math.round(totalHours * hourlyRate);
-
-  // 4. Volume discount
-  let volumeDiscountPercent = 0;
-  for (const tier of VOLUME_TIERS) {
-    if (totalHours <= tier.maxHours) {
-      volumeDiscountPercent = tier.percent;
-      break;
+  if (session.customer.type === 'MEMBER' && activeMembership) {
+    return {
+      hourlyRate: 0,
+      totalHours,
+      subtotal: 0,
+      typeDiscount: 0,
+      volumeDiscount: 0,
+      grandTotal: 0,
+      isMemberSession: true,
     }
   }
-  const volumeDiscount = Math.round((subtotal * volumeDiscountPercent) / 100);
 
-  // 5. Customer type discount
-  const typeDiscountPercent = getCustomerTypeDiscount(
-    session.customer.type as CustomerType
-  );
-  const typeDiscount = Math.round((subtotal * typeDiscountPercent) / 100);
+  const currentHour = session.startTime.getHours()
+  const hourlyRate =
+    Number(session.hourlyRate)
+    || await findApplicableRate(
+      currentHour,
+      getDayType(session.startTime),
+      session.startTime
+    )
 
-  // 6. Grand total
-  const grandTotal = subtotal - volumeDiscount - typeDiscount;
+  const subtotal = Math.round(totalHours * hourlyRate)
 
   return {
     hourlyRate,
     totalHours,
     subtotal,
-    typeDiscount,
-    volumeDiscount,
-    grandTotal: Math.max(0, grandTotal),
-  };
+    typeDiscount: 0,
+    volumeDiscount: 0,
+    grandTotal: Math.max(0, subtotal),
+    isMemberSession: false,
+  }
+}
+
+async function findApplicablePricingRule(
+  currentHour: number,
+  dayType: DayType,
+  at: Date
+) {
+  return prisma.pricingRule.findFirst({
+    where: pricingRuleWhere(currentHour, dayType, at),
+    orderBy: [
+      { effectiveFrom: 'desc' },
+      { createdAt: 'desc' },
+    ],
+  })
+}
+
+function pricingRuleWhere(
+  currentHour: number,
+  dayType: DayType,
+  at: Date
+) {
+  return {
+    hourFrom: { lte: currentHour },
+    OR: [
+      { hourTo: null },
+      { hourTo: { gt: currentHour } },
+    ],
+    effectiveFrom: { lte: at },
+    AND: [
+      {
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: at } },
+        ],
+      },
+      {
+        OR: [
+          { daysOfWeek: { has: at.getDay() } },
+          {
+            daysOfWeek: { isEmpty: true },
+            dayType,
+          },
+        ],
+      },
+    ],
+  }
+}
+
+function hasSharedDay(left: number[], right: number[]): boolean {
+  return left.some((day) => right.includes(day))
 }

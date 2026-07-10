@@ -32,6 +32,7 @@ export async function GET(
     if ((error as Error).message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
+    console.error("GET /api/customers/[id] error:", error);
     return NextResponse.json({ success: false, error: "Lỗi máy chủ" }, { status: 500 });
   }
 }
@@ -63,9 +64,13 @@ export async function PUT(
       );
     }
 
+    // Chuẩn hóa phone rỗng về null
     const customer = await prisma.customer.update({
       where: { id },
-      data: parsed.data,
+      data: {
+        ...parsed.data,
+        phone: parsed.data.phone || null,
+      },
     });
 
     return NextResponse.json({ success: true, data: customer });
@@ -73,6 +78,7 @@ export async function PUT(
     if ((error as Error).message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
+    console.error("PUT /api/customers/[id] error:", error);
     return NextResponse.json({ success: false, error: "Lỗi máy chủ" }, { status: 500 });
   }
 }

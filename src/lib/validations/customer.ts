@@ -8,7 +8,8 @@ export const createCustomerSchema = z.object({
     .regex(/^0\d{9,10}$/, "Số điện thoại không hợp lệ")
     .optional()
     .or(z.literal("")),
-  type: z.enum(["WALK_IN", "MEMBER"]).default("WALK_IN"),
+  // Hội viên chỉ được tạo qua POST /api/memberships/register
+  type: z.enum(["WALK_IN"]).default("WALK_IN"),
 });
 
 export const updateCustomerSchema = z.object({

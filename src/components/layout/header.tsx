@@ -3,7 +3,8 @@
 // ── Header — top bar with user info + actions ───────────
 // Shown on mobile. On desktop user info is in sidebar footer.
 
-import { LogOut, Menu, Target } from "lucide-react";
+import { LogOut, Menu, Target } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 interface HeaderProps {
   userFullName: string;
@@ -18,12 +19,7 @@ export function Header({ userFullName, userRole, onMenuClick, onLogout }: Header
 
   return (
     <header className="md:hidden sticky top-0 z-30 flex items-center gap-3 border-b border-zinc-200 dark:border-zinc-800 bg-white/95 dark:bg-zinc-950/95 backdrop-blur-md px-4 py-2.5">
-      <button
-        onClick={onMenuClick}
-        className="rounded-lg p-1.5 text-zinc-500 hover:bg-zinc-100 dark:text-zinc-400 dark:hover:bg-zinc-800 transition-colors"
-      >
-        <Menu size={20} />
-      </button>
+      <Button variant="ghost" size="sm" icon={Menu} onClick={onMenuClick} />
 
       <div className="flex items-center gap-2">
         <Target size={18} className="text-blue-500" />
@@ -48,13 +44,7 @@ export function Header({ userFullName, userRole, onMenuClick, onLogout }: Header
             </p>
           </div>
         </div>
-        <button
-          onClick={onLogout}
-          className="rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-red-500 transition-colors"
-          title="Đăng xuất"
-        >
-          <LogOut size={18} />
-        </button>
+        <Button variant="ghost" size="sm" icon={LogOut} onClick={onLogout} title="Đăng xuất" />
       </div>
     </header>
   );

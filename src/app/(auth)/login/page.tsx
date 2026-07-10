@@ -1,8 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
-import { Target, LogIn } from "lucide-react";
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { LogIn, Target } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 
 export default function LoginPage() {
   const router = useRouter();
@@ -75,14 +76,17 @@ export default function LoginPage() {
             <p className="rounded-lg bg-red-500/10 px-4 py-2 text-sm text-red-400">{error}</p>
           )}
 
-          <button
+          <Button
             type="submit"
+            variant="primary"
+            size="md"
+            fullWidth
+            icon={LogIn}
+            loading={loading}
             disabled={loading}
-            className="flex items-center justify-center gap-2 rounded-lg bg-blue-600 py-2.5 font-medium text-white transition-colors hover:bg-blue-700 disabled:opacity-50"
           >
-            <LogIn size={18} />
-            {loading ? "Đang đăng nhập..." : "Đăng nhập"}
-          </button>
+            {loading ? 'Đang đăng nhập...' : 'Đăng nhập'}
+          </Button>
         </form>
 
         <p className="mt-6 text-center text-xs text-zinc-500">

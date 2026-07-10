@@ -5,6 +5,7 @@
 
 import { useEffect, type ReactNode } from "react";
 import { X } from "lucide-react";
+import { Button } from "./button";
 
 interface ModalProps {
   open: boolean;
@@ -80,12 +81,7 @@ export function Modal({
                   </p>
                 )}
               </div>
-              <button
-                onClick={onClose}
-                className="shrink-0 rounded-lg p-1.5 text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-600 dark:hover:text-zinc-300 transition-colors"
-              >
-                <X size={18} />
-              </button>
+              <Button variant="ghost" size="sm" icon={X} onClick={onClose} />
             </div>
           </div>
         )}
