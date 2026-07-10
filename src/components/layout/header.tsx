@@ -3,7 +3,8 @@
 // ── Header — top bar with user info + actions ───────────
 // Shown on mobile. On desktop user info is in sidebar footer.
 
-import { LogOut, Menu, Target } from 'lucide-react'
+import Image from 'next/image'
+import { LogOut, Menu } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface HeaderProps {
@@ -22,10 +23,23 @@ export function Header({ userFullName, userRole, onMenuClick, onLogout }: Header
       <Button variant="ghost" size="sm" icon={Menu} onClick={onMenuClick} />
 
       <div className="flex items-center gap-2">
-        <Target size={18} className="text-blue-500" />
-        <h1 className="text-sm font-bold text-zinc-900 dark:text-white">
-          QL Trường Cung
-        </h1>
+        <div className="relative h-7 w-7 shrink-0 overflow-hidden rounded-md bg-white p-0.5 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800">
+          <Image
+            src="/logo.jpg"
+            alt="Victoria Archery Club"
+            width={28}
+            height={28}
+            className="h-full w-full object-contain"
+          />
+        </div>
+        <div className="leading-tight">
+          <h1 className="text-sm font-bold tracking-wide text-zinc-900 dark:text-white">
+            VICTORIA
+          </h1>
+          <p className="text-[9px] font-medium uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+            Archery
+          </p>
+        </div>
       </div>
 
       <div className="flex-1" />

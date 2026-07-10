@@ -10,7 +10,9 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "prisma generate",
-    "db:push": "prisma db push"
+    "db:push": "prisma db push",
+    "seed:admin": "tsx prisma/seed-admin.ts",
+    "check:db": "tsx scripts/check-db.ts"
   },
   "dependencies": {
     "@prisma/adapter-pg": "^7.8.0",

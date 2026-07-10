@@ -1,10 +1,21 @@
 @AGENTS.md
 
-# QL Trường Cung — Archery Range POS System
+# Victoria Archery Club — POS System
+
+## Brand
+
+- **Tên thương hiệu:** Victoria Archery Club
+- **Logo file:** `public/logo.jpg` (V + mũi tên, đen + vàng đồng)
+- **Wordmark:** `VICTORIA` (chữ in hoa, tracking rộng) + tagline `ARCHERY CLUB` (chữ in hoa, tracking dãn, màu vàng đồng)
+- **Bảng màu:**
+  - Brand (chính): `#2563eb` (light) / charcoal `#1a1a1a` (dark)
+  - Gold accent: `#d4b572` (light) / `#b69854` (dark) — dùng cho tagline, hover nhấn, viền nhấn (chỉ định nghĩa trong dark mode, tham khảo `globals.css`)
+  - Surface & text: theo bảng token trong `src/app/globals.css`
+- **Code name nội bộ (giữ nguyên):** `qltruongcung` (tên package, localStorage key, theme key) — không đổi để tránh vỡ dữ liệu người dùng hiện tại.
 
 ## Tổng quan dự án
 
-QL Trường Cung ("Quản lý trường cung") là hệ thống **POS (Point of Sale)** fullstack dùng Next.js 16, phục vụ quản lý trường bắn cung.
+Hệ thống **POS (Point of Sale)** fullstack dùng Next.js 16, phục vụ vận hành **Victoria Archery Club** — quản lý ca quầy, hội viên, bảng giá giờ chơi, tồn kho và báo cáo doanh thu.
 
 ### 3 nhóm người dùng chính:
 
@@ -36,12 +47,13 @@ Các rule dưới đây là nguồn sự thật cho những lần phát triển 
 | Framework | Next.js (App Router) | 16.2.10 |
 | UI | React | 19.2.4 |
 | Styling | Tailwind CSS | v4 |
-| Icons | lucide-react | latest |
+| Icons | lucide-react | 1.x |
 | Language | TypeScript (strict) | 5.x |
-| ORM | Prisma | latest |
+| ORM | Prisma | 7.8 |
 | Database | PostgreSQL | 16+ |
-| Auth | Custom JWT (jose) | — |
-| Validation | Zod | latest |
+| Auth | Custom JWT (jose) | 6.x |
+| Validation | Zod | 4.4 |
+| Testing | Vitest | 4.x |
 | Package Manager | npm | — |
 
 ## Cấu trúc thư mục
@@ -60,7 +72,8 @@ src/
 │   │   ├── inventory/          # Tồn kho quầy: sản phẩm/dịch vụ đang bán
 │   │   ├── staff/              # Quản lý nhân viên (admin only)
 │   │   ├── reports/            # Báo cáo doanh thu + export
-│   │   └── settings/           # Tab Thêm: lối tắt, theme, trạng thái hệ thống, đăng xuất
+│   │   ├── settings/           # Tab Thêm: lối tắt, theme, trạng thái hệ thống, đăng xuất
+│   │   └── membership-plans/    # Quản lý gói hội viên (admin only)
 │   ├── api/                    # REST API (Route Handlers)
 │   │   ├── auth/               # login, logout, me
 │   │   ├── customers/          # CRUD khách hàng
@@ -72,6 +85,7 @@ src/
 │   │   ├── memberships/        # Lịch sử/gia hạn hội viên
 │   │   ├── shifts/             # Mở/đóng/quản lý ca làm, chi tiết hóa đơn theo ca
 │   │   ├── products/           # Sản phẩm/dịch vụ và tồn kho
+│   │   ├── activity-logs/       # Nhật ký hoạt động
 │   │   └── seed/               # Seed database
 │   └── layout.tsx              # Root layout (html, body)
 ├── proxy.ts                    # Auth route protection cho dashboard routes (Next.js 16)
@@ -84,9 +98,12 @@ src/
 │   │   ├── skeleton.tsx        # Skeleton, TableSkeleton, StatCardsSkeleton, CardSkeleton
 │   │   ├── toast.tsx           # ToastProvider + useToast hook
 │   │   ├── modal.tsx           # Modal (responsive: bottom sheet mobile, overlay desktop)
-│   │   └── input.tsx           # Input, Select, Label (style thống nhất)
+│   │   ├── input.tsx           # Input, Select, Label, Textarea (style thống nhất)
+│   │   ├── button.tsx          # Button (6 variants, 4 sizes, icon, loading, fullWidth)
+│   │   ├── filter-button.tsx   # FilterButton toggle (active/onClick)
+│   │   └── notice-card.tsx     # NoticeCard (4 tones: info/success/warning/danger)
 │   └── layout/
-│       ├── sidebar.tsx         # Desktop sidebar (collapsible, 240px/72px)
+│       ├── sidebar.tsx         # Desktop sidebar (collapsible, 256px/72px)
 │       ├── bottom-nav.tsx      # Mobile bottom tab bar (5 tabs)
 │       ├── header.tsx          # Mobile sticky top bar
 │       └── theme-provider.tsx  # ThemeProvider (light/dark/system)
@@ -104,6 +121,10 @@ src/
 │       ├── membership.ts
 │       ├── product.ts
 │       └── shift.ts
+│   ├── __tests__/               # Unit tests (vitest)
+│       ├── memberships.test.ts
+│       ├── pricing.test.ts
+│       └── validations.test.ts
 ├── hooks/
 │   └── use-theme.ts            # Theme hook (light | dark | system)
 ├── features/
@@ -113,11 +134,14 @@ src/
 │   ├── pos/                    # Mobile-first POS: TodayShiftScreen, checkout drawer, helpers
 │   ├── pricing/                # Mobile-first quản trị bảng giá: PricingScreen, rule guards
 │   ├── reports/                # Mobile-first báo cáo: ReportsScreen, đối soát ca/ngày
-│   └── shifts/                 # Mobile-first quản lý ca: danh sách ca, chi tiết ca, đơn hàng phát sinh
+│   ├── shifts/                 # Mobile-first quản lý ca: danh sách ca, chi tiết ca, đơn hàng phát sinh
+│   └── membership-plans/       # Mobile-first quản trị gói hội viên: MembershipPlansScreen
 └── types/
     └── index.ts                # Shared TypeScript types + enums
 prisma/
 └── schema.prisma               # Database schema
+src/generated/
+└── prisma/                     # Generated Prisma client (Prisma 7, imported từ src/lib/prisma.ts)
 ```
 
 ## Quy ước code
@@ -230,6 +254,10 @@ export default function CustomersPage() {
 | `Input` | `@/components/ui/input` | Text input thống nhất |
 | `Select` | `@/components/ui/input` | Select dropdown thống nhất |
 | `Label` | `@/components/ui/input` | Form label (có required indicator) |
+| `Textarea` | `@/components/ui/input` | Textarea input thống nhất |
+| `Button` | `@/components/ui/button` | Nút (6 variants: primary/secondary/danger/ghost/inverse/outline-danger, 4 sizes, loading state, icon) |
+| `FilterButton` | `@/components/ui/filter-button` | Nút filter toggle (active/onClick) |
+| `NoticeCard` | `@/components/ui/notice-card` | Card thông báo (4 tones: info/success/warning/danger, title + description + action) |
 
 ### 4. Icons
 
@@ -502,7 +530,19 @@ export async function POST(request: NextRequest) {
 | `/api/reports/dashboard` | GET | Stats dashboard, đối soát ca hiện tại, breakdown payment/item |
 | `/api/reports/revenue` | GET | Doanh thu theo ngày (from/to params), staff thấy số liệu của mình, admin thấy toàn hệ thống |
 | `/api/reports/export` | GET | Admin export CSV doanh thu/phiên |
-| `/api/seed` | GET | Seed database |
+| `/api/seed` | POST | Seed database |
+| `/api/membership-plans` | GET, POST | Danh sách + tạo gói hội viên |
+| `/api/membership-plans/[id]` | PUT, DELETE | Cập nhật + xoá gói hội viên |
+| `/api/memberships` | GET | Lịch sử hội viên (có `customerId`, `current=true` cho membership đang hiệu lực) |
+| `/api/memberships/register` | POST | Đăng ký hội viên mới (customer + membership + invoice/payment trong transaction) |
+| `/api/memberships/renew` | POST | Gia hạn hội viên (nối kỳ hoặc kỳ mới từ ngày đóng phí) |
+| `/api/pricing` | GET, POST | Danh sách + tạo quy tắc giá (admin only) |
+| `/api/pricing/[id]` | PUT, DELETE | Cập nhật + xoá quy tắc giá (admin only) |
+| `/api/pricing/status` | GET | Đếm số quy tắc giá đang hiệu lực (`activeCount`) |
+| `/api/products` | GET, POST | Danh sách + tạo sản phẩm/dịch vụ (POST admin only, tạo StockMovement tồn đầu kỳ) |
+| `/api/products/[id]/stock` | POST | Nhập kho / điều chỉnh tồn kho (admin only, ghi StockMovement + ActivityLog) |
+| `/api/shifts/[id]/participants` | GET, POST | Danh sách + thêm nhân viên tham gia ca |
+| `/api/activity-logs` | GET | Nhật ký hoạt động hệ thống |
 
 **Luật:**
 - **Response format cố định:**
@@ -581,7 +621,7 @@ try {
 ### 14. UI Patterns
 
 **Layout Architecture:**
-- **Desktop (≥768px)**: Fixed sidebar bên trái (`src/components/layout/sidebar.tsx`), có thể collapse (240px / 72px). State lưu trong localStorage key `qltrungcung_sidebar_collapsed`.
+- **Desktop (≥768px)**: Fixed sidebar bên trái (`src/components/layout/sidebar.tsx`), có thể collapse (256px / 72px). State lưu trong localStorage key `qltrungcung_sidebar_collapsed`.
 - **Mobile (<768px)**: Bottom tab navigation (`src/components/layout/bottom-nav.tsx`) đúng 5 tabs cho nhân viên: `Ca`, `Hội viên`, `Kho`, `Báo cáo`, `Thêm`. Drawer sidebar khi tap hamburger dùng chung `staffMenuItems` với desktop sidebar để không lệch menu.
 - **Main content**: Phải có `pb-16 md:pb-0` để bù cho bottom nav trên mobile.
 - **ToastProvider**: Wrap toàn bộ dashboard layout trong `layout.tsx`.
@@ -772,8 +812,12 @@ npm run dev              # Dev server (localhost:3000)
 npm run build            # Production build
 npm run start            # Chạy production
 npm run lint             # ESLint
+npm test                 # Chạy test (vitest)
+npm run test:watch       # Chạy test watch mode
 npm run db:push          # Sync schema → database
-npx prisma generate      # Generate Prisma client
+npm run seed:admin       # Seed tài khoản admin mặc định
+npm run check:db         # Kiểm tra kết nối database
+npx prisma generate      # Generate Prisma client (tự động chạy qua postinstall)
 npx prisma studio        # Prisma Studio (DB GUI)
 ```
 

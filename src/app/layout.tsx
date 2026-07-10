@@ -14,8 +14,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "QL Trường Cung - POS",
-  description: "Hệ thống POS quản lý trường bắn cung",
+  title: "Victoria Archery Club - POS",
+  description: "Hệ thống POS vận hành Victoria Archery Club",
+  icons: {
+    icon: [{ url: "/logo.jpg", type: "image/jpeg" }],
+  },
 };
 
 export default async function RootLayout({

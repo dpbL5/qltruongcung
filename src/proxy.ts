@@ -10,10 +10,18 @@ const SESSION_SECRET = new TextEncoder().encode(
 
 const PUBLIC_PATHS = ['/login']
 
+function isPublicStaticAsset(pathname: string) {
+  return /\.(png|jpe?g|gif|svg|webp|ico|woff2?|ttf|eot|pdf|txt|xml|json|js|css|map)$/i.test(pathname)
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
 
   if (PUBLIC_PATHS.some((path) => pathname === path || pathname.startsWith(`${path}/`))) {
+    return NextResponse.next()
+  }
+
+  if (isPublicStaticAsset(pathname)) {
     return NextResponse.next()
   }
 

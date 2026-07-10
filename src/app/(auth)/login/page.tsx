@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from 'react'
+import Image from 'next/image'
 import { useRouter } from 'next/navigation'
-import { LogIn, Target } from 'lucide-react'
+import { LogIn } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 export default function LoginPage() {
@@ -40,11 +41,25 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-zinc-900">
-      <div className="w-full max-w-sm rounded-2xl bg-zinc-800 p-8 shadow-lg">
-        <div className="mb-2 flex items-center justify-center gap-2">
-          <Target size={28} className="text-blue-400" />
-          <h1 className="text-2xl font-bold text-white">QL Trường Cung</h1>
+    <div className="flex min-h-screen items-center justify-center bg-zinc-950 px-4">
+      <div className="w-full max-w-sm rounded-2xl border border-zinc-800 bg-zinc-900 p-8 shadow-2xl">
+        <div className="mb-3 flex flex-col items-center justify-center gap-3">
+          <div className="rounded-xl bg-white p-2 shadow-md">
+            <Image
+              src="/logo.jpg"
+              alt="Victoria Archery Club"
+              width={80}
+              height={80}
+              className="h-20 w-20 object-contain"
+              priority
+            />
+          </div>
+          <div className="text-center">
+            <h1 className="text-xl font-bold tracking-wide text-white">VICTORIA</h1>
+            <p className="text-[10px] font-medium uppercase tracking-[0.3em] text-amber-400">
+              Archery Club
+            </p>
+          </div>
         </div>
         <p className="mb-6 text-center text-sm text-zinc-400">Đăng nhập hệ thống POS</p>
 

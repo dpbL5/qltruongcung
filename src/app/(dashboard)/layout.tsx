@@ -1,8 +1,9 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import Image from 'next/image'
 import { usePathname, useRouter } from 'next/navigation'
-import { LogOut, Target, X } from 'lucide-react'
+import { LogOut, X } from 'lucide-react'
 import { ThemeProvider } from '@/components/layout/theme-provider'
 import { Sidebar, getVisibleStaffMenuItems } from '@/components/layout/sidebar'
 import { BottomNav } from '@/components/layout/bottom-nav'
@@ -109,15 +110,23 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
             }`}
           >
             <div className="flex items-center justify-between border-b border-zinc-200 px-5 py-4 dark:border-zinc-800">
-              <div className="flex items-center gap-2">
-                <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-blue-600 text-white">
-                  <Target size={17} />
+              <div className="flex items-center gap-2.5">
+                <div className="relative h-9 w-9 shrink-0 overflow-hidden rounded-lg bg-white p-1 shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800">
+                  <Image
+                    src="/logo.jpg"
+                    alt="Victoria Archery Club"
+                    width={36}
+                    height={36}
+                    className="h-full w-full object-contain"
+                  />
                 </div>
                 <div>
-                  <p className="text-sm font-bold text-zinc-900 dark:text-white">
-                    QL Trường Cung
+                  <p className="text-sm font-bold tracking-wide text-zinc-900 dark:text-white">
+                    VICTORIA
                   </p>
-                  <p className="text-[10px] text-zinc-400">POS vận hành</p>
+                  <p className="text-[10px] font-medium uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+                    Archery Club
+                  </p>
                 </div>
               </div>
               <Button variant="ghost" size="sm" icon={X} onClick={() => setMobileSidebarOpen(false)} />

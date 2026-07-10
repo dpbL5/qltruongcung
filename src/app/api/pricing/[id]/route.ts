@@ -8,6 +8,7 @@ import {
   resolveRuleDaysOfWeek,
 } from '@/lib/pricing'
 import { prisma } from '@/lib/prisma'
+import { parseLocalDate, parseLocalDateEnd } from '@/lib/utils'
 import { updatePricingRuleSchema } from '@/lib/validations/pricing'
 
 export async function PUT(
@@ -46,10 +47,10 @@ export async function PUT(
     const hourFrom = parsed.data.hourFrom ?? existing.hourFrom
     const hourTo = parsed.data.hourTo !== undefined ? parsed.data.hourTo : existing.hourTo
     const effectiveFrom = parsed.data.effectiveFrom
-      ? new Date(parsed.data.effectiveFrom)
+      ? parseLocalDate(parsed.data.effectiveFrom)
       : existing.effectiveFrom
     const effectiveTo = parsed.data.effectiveTo !== undefined
-      ? (parsed.data.effectiveTo ? new Date(parsed.data.effectiveTo) : null)
+      ? (parsed.data.effectiveTo ? parseLocalDateEnd(parsed.data.effectiveTo) : null)
       : existing.effectiveTo
 
     const overlaps = await findOverlappingRules(
@@ -68,9 +69,9 @@ export async function PUT(
         data.daysOfWeek = daysOfWeek
         data.dayType = dayType
       }
-      if (parsed.data.effectiveFrom) data.effectiveFrom = new Date(parsed.data.effectiveFrom)
+      if (parsed.data.effectiveFrom) data.effectiveFrom = parseLocalDate(parsed.data.effectiveFrom)
       if (parsed.data.effectiveTo !== undefined) {
-        data.effectiveTo = parsed.data.effectiveTo ? new Date(parsed.data.effectiveTo) : null
+        data.effectiveTo = parsed.data.effectiveTo ? parseLocalDateEnd(parsed.data.effectiveTo) : null
       }
 
       const rule = await tx.pricingRule.update({

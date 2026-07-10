@@ -50,3 +50,25 @@ export function parseEndOfDay(value: string): Date {
   date.setHours(23, 59, 59, 999)
   return date
 }
+
+// ── Date-only string → local-time Date (tránh lệch múi giờ UTC) ──
+// new Date("2026-07-11") → midnight UTC = 7:00 sáng giờ VN → sai với mong đợi người dùng.
+// Các hàm bên dưới dùng constructor (year, month-1, day) để lấy midnight theo giờ địa phương.
+
+/**
+ * Biến chuỗi date-only "YYYY-MM-DD" thành Date lúc 00:00:00.000 giờ địa phương.
+ * Dùng cho `effectiveFrom` của bảng giá và các trường ngày hiệu lực bắt đầu.
+ */
+export function parseLocalDate(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day)
+}
+
+/**
+ * Biến chuỗi date-only "YYYY-MM-DD" thành Date lúc 23:59:59.999 giờ địa phương.
+ * Dùng cho `effectiveTo` để ngày kết thúc bao phủ hết ngày.
+ */
+export function parseLocalDateEnd(dateStr: string): Date {
+  const [year, month, day] = dateStr.split('-').map(Number)
+  return new Date(year, month - 1, day, 23, 59, 59, 999)
+}

@@ -3,6 +3,7 @@ import { requireAdmin } from '@/lib/auth'
 import { logActivity } from '@/lib/business/audit'
 import { deriveDayTypeFromDays, findOverlappingRules, normalizeDaysOfWeek } from '@/lib/pricing'
 import { prisma } from '@/lib/prisma'
+import { parseLocalDate, parseLocalDateEnd } from '@/lib/utils'
 import { createPricingRuleSchema } from '@/lib/validations/pricing'
 
 export async function GET() {
@@ -44,8 +45,8 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const effectiveFrom = new Date(parsed.data.effectiveFrom)
-    const effectiveTo = parsed.data.effectiveTo ? new Date(parsed.data.effectiveTo) : null
+    const effectiveFrom = parseLocalDate(parsed.data.effectiveFrom)
+    const effectiveTo = parsed.data.effectiveTo ? parseLocalDateEnd(parsed.data.effectiveTo) : null
     const daysOfWeek = normalizeDaysOfWeek(parsed.data.daysOfWeek)
     const dayType = deriveDayTypeFromDays(daysOfWeek)
     const peakType = parsed.data.peakType ?? 'OFF_PEAK'

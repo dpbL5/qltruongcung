@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import Image from 'next/image'
 import { usePathname } from 'next/navigation'
 import {
   Banknote,
@@ -11,7 +12,6 @@ import {
   Package,
   Settings,
   ShieldCheck,
-  Target,
   Timer,
   UserCog,
   type LucideIcon,
@@ -70,16 +70,26 @@ export function Sidebar({ collapsed, onToggle, userRole }: SidebarProps) {
           collapsed ? 'justify-center' : 'gap-3'
         }`}
       >
-        <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl bg-blue-600 text-white">
-          <Target size={20} />
+        <div
+          className={`relative shrink-0 overflow-hidden rounded-xl bg-white shadow-sm ring-1 ring-zinc-200 dark:ring-zinc-800 ${
+            collapsed ? 'h-9 w-9' : 'h-10 w-10'
+          }`}
+        >
+          <Image
+            src="/logo.jpg"
+            alt="Victoria Archery Club"
+            width={40}
+            height={40}
+            className="h-full w-full object-contain"
+          />
         </div>
         {!collapsed && (
           <div className="min-w-0">
-            <h1 className="truncate text-sm font-bold leading-tight text-zinc-900 dark:text-white">
-              QL Trường Cung
+            <h1 className="truncate text-sm font-bold leading-tight tracking-wide text-zinc-900 dark:text-white">
+              VICTORIA
             </h1>
-            <p className="text-[10px] font-medium uppercase tracking-wider text-zinc-400 dark:text-zinc-500">
-              POS vận hành
+            <p className="truncate text-[10px] font-medium uppercase tracking-[0.2em] text-amber-600 dark:text-amber-400">
+              Archery Club
             </p>
           </div>
         )}
