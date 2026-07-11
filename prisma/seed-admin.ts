@@ -16,7 +16,7 @@ import { UserRole } from '@/generated/prisma/enums'
 import bcrypt from 'bcryptjs'
 
 const ADMIN_USERNAME = process.env.ADMIN_USERNAME ?? 'admin'
-const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'admin123'
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD ?? 'superuser@victoria2026'
 const ADMIN_FULL_NAME = process.env.ADMIN_FULL_NAME ?? 'Quản trị viên'
 
 if (!process.env.DATABASE_URL) {

@@ -49,9 +49,7 @@ export async function POST(request: NextRequest) {
     const effectiveTo = parsed.data.effectiveTo ? parseLocalDateEnd(parsed.data.effectiveTo) : null
     const daysOfWeek = normalizeDaysOfWeek(parsed.data.daysOfWeek)
     const dayType = deriveDayTypeFromDays(daysOfWeek)
-    const peakType = parsed.data.peakType ?? 'OFF_PEAK'
 
-    // ── Kiểm tra chồng lấn (soft warning, không chặn) ──
     const overlaps = await findOverlappingRules(
       daysOfWeek,
       parsed.data.hourFrom,
@@ -69,7 +67,6 @@ export async function POST(request: NextRequest) {
           ratePerHour: parsed.data.ratePerHour,
           daysOfWeek,
           dayType,
-          peakType,
           effectiveFrom,
           effectiveTo,
         },

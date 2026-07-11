@@ -15,7 +15,16 @@ export async function GET(
 
     const customer = await prisma.customer.findUnique({
       where: { id },
-      include: {
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        type: true,
+        totalHoursPlayed: true,
+        totalSpent: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
         _count: { select: { sessions: true } },
       },
     });
@@ -70,6 +79,17 @@ export async function PUT(
       data: {
         ...parsed.data,
         phone: parsed.data.phone || null,
+      },
+      select: {
+        id: true,
+        fullName: true,
+        phone: true,
+        type: true,
+        totalHoursPlayed: true,
+        totalSpent: true,
+        notes: true,
+        createdAt: true,
+        updatedAt: true,
       },
     });
 

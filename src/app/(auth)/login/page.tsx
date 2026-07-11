@@ -71,7 +71,7 @@ export default function LoginPage() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               className="w-full rounded-lg border border-zinc-600 bg-zinc-700 px-4 py-2.5 text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              placeholder="admin"
+              placeholder="Nhập tên đăng nhập"
               required
             />
           </div>
@@ -82,7 +82,7 @@ export default function LoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               className="w-full rounded-lg border border-zinc-600 bg-zinc-700 px-4 py-2.5 text-white outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-              placeholder="••••••"
+              placeholder="Nhập mật khẩu"
               required
             />
           </div>
@@ -104,9 +104,9 @@ export default function LoginPage() {
           </Button>
         </form>
 
-        <p className="mt-6 text-center text-xs text-zinc-500">
+        {/* <p className="mt-6 text-center text-xs text-zinc-500">
           Admin: admin / admin123 | Staff: staff / staff123
-        </p>
+        </p> */}
       </div>
     </div>
   );

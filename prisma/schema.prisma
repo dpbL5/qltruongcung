@@ -1,4 +1,4 @@
-// Prisma Schema: QL Truong Cung POS
+// Prisma Schema: victoriapos
 
 generator client {
   provider = "prisma-client"
@@ -30,11 +30,6 @@ enum SessionStatus {
 enum DayType {
   WEEKDAY
   WEEKEND
-}
-
-enum PeakType {
-  PEAK
-  OFF_PEAK
 }
 
 enum PaymentMethod {
@@ -167,13 +162,12 @@ model PricingRule {
   hourTo        Int?      @map("hour_to")
   ratePerHour   Decimal   @map("rate_per_hour") @db.Decimal(12, 2)
   dayType       DayType   @default(WEEKDAY) @map("day_type")
-  peakType      PeakType  @default(PEAK) @map("peak_type")
   effectiveFrom DateTime  @map("effective_from")
   effectiveTo   DateTime? @map("effective_to")
   createdAt     DateTime  @default(now()) @map("created_at")
   updatedAt     DateTime  @updatedAt @map("updated_at")
 
-  @@index([dayType, peakType, hourFrom, hourTo])
+  @@index([dayType, hourFrom, hourTo])
   @@map("pricing_rules")
 }
 
@@ -233,7 +227,6 @@ model MembershipPayment {
   createdAt     DateTime       @default(now()) @map("created_at")
 
   @@index([customerId, paidAt])
-  @@index([membershipId])
   @@index([invoiceId])
   @@index([shiftId])
   @@map("membership_payments")
@@ -335,7 +328,6 @@ model InvoiceItem {
   stockMovements StockMovement[]
 
   @@index([invoiceId])
-  @@index([productId])
   @@map("invoice_items")
 }
 
@@ -400,7 +392,6 @@ model StockMovement {
   createdAt     DateTime          @default(now()) @map("created_at")
 
   @@index([productId, createdAt])
-  @@index([invoiceItemId])
   @@index([shiftId])
   @@map("stock_movements")
 }

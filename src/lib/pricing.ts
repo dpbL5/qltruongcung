@@ -1,6 +1,6 @@
 import { findActiveMembership } from '@/lib/business/memberships'
 import { prisma } from '@/lib/prisma'
-import { calcHours, getDayType } from '@/lib/utils'
+import { calcHours, getDayType, getVnDay, getVnHour } from '@/lib/utils'
 import type { DayType } from '@/types'
 
 export interface PricingResult {
@@ -25,7 +25,7 @@ export async function findApplicableRate(
 
 export async function countApplicablePricingRules(at: Date = new Date()): Promise<number> {
   return prisma.pricingRule.count({
-    where: pricingRuleWhere(at.getHours(), getDayType(at), at),
+    where: pricingRuleWhere(getVnHour(at), getDayType(at), at),
   })
 }
 
@@ -139,7 +139,7 @@ export async function calculateSessionPrice(
     }
   }
 
-  const currentHour = session.startTime.getHours()
+  const currentHour = getVnHour(session.startTime)
   const hourlyRate =
     Number(session.hourlyRate)
     || await findApplicableRate(
@@ -196,7 +196,7 @@ function pricingRuleWhere(
       },
       {
         OR: [
-          { daysOfWeek: { has: at.getDay() } },
+          { daysOfWeek: { has: getVnDay(at) } },
           {
             daysOfWeek: { isEmpty: true },
             dayType,

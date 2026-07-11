@@ -36,7 +36,6 @@ export async function PUT(
       )
     }
 
-    // ── Kiểm tra chồng lấn theo ngày lặp, khung giờ và hiệu lực ──
     const legacyDayType = parsed.data.dayType ?? existing.dayType
     const daysOfWeek = parsed.data.daysOfWeek !== undefined
       ? normalizeDaysOfWeek(parsed.data.daysOfWeek)

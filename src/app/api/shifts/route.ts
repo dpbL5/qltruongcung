@@ -1,15 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { Prisma } from '@/generated/prisma/client'
 import { prisma } from '@/lib/prisma'
 import { requireAuth } from '@/lib/auth'
 import { openShiftSchema } from '@/lib/validations/shift'
 import {
-  findOpenOperationalShift,
   findOpenShiftForStaff,
-  shiftWithAllParticipantsInclude,
+  findOpenOperationalShift,
   shiftWithParticipantsInclude,
+  shiftWithAllParticipantsInclude,
 } from '@/lib/business/shifts'
-import { logActivity } from '@/lib/business/audit'
+import { openOrJoinShift, mapOpenOrJoinShiftError } from '@/lib/business/use-cases/openOrJoinShift'
 
 export async function GET(request: NextRequest) {
   try {
@@ -82,7 +81,11 @@ export async function POST(request: NextRequest) {
       )
     }
 
-    const result = await openOrJoinShift(auth.userId, parsed.data)
+    const result = await openOrJoinShift({
+      staffId: auth.userId,
+      openingCash: parsed.data.openingCash,
+      notes: parsed.data.notes,
+    })
 
     return NextResponse.json(
       {
@@ -101,96 +104,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
     console.error('POST /api/shifts error:', error)
-    return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 })
+    const mapped = mapOpenOrJoinShiftError(error as Error)
+    return NextResponse.json(
+      { success: false, code: mapped.code, error: mapped.message },
+      { status: mapped.status }
+    )
   }
-}
-
-async function openOrJoinShift(
-  staffId: string,
-  data: { openingCash: number; notes?: string }
-) {
-  for (let attempt = 0; attempt < 2; attempt += 1) {
-    try {
-      return await prisma.$transaction(async (tx) => {
-        const currentShift = await findOpenShiftForStaff(tx, staffId)
-        if (currentShift) {
-          return { shift: currentShift, created: false, joined: false }
-        }
-
-        const openShift = await findOpenOperationalShift(tx)
-        if (openShift) {
-          await tx.shiftParticipant.upsert({
-            where: {
-              shiftId_staffId: {
-                shiftId: openShift.id,
-                staffId,
-              },
-            },
-            update: {
-              leftAt: null,
-              role: 'STAFF',
-            },
-            create: {
-              shiftId: openShift.id,
-              staffId,
-              role: 'STAFF',
-            },
-          })
-
-          await logActivity(tx, {
-            userId: staffId,
-            action: 'SHIFT_JOIN',
-            entityType: 'Shift',
-            entityId: openShift.id,
-            details: { joinedAt: new Date().toISOString() },
-          })
-
-          const joinedShift = await tx.shift.findUniqueOrThrow({
-            where: { id: openShift.id },
-            include: shiftWithParticipantsInclude,
-          })
-
-          return { shift: joinedShift, created: false, joined: true }
-        }
-
-        const newShift = await tx.shift.create({
-          data: {
-            staffId,
-            openSlot: 'OPERATIONAL',
-            openingCash: data.openingCash,
-            notes: data.notes,
-            participants: {
-              create: {
-                staffId,
-                role: 'LEAD',
-              },
-            },
-          },
-          include: shiftWithParticipantsInclude,
-        })
-
-        await logActivity(tx, {
-          userId: staffId,
-          action: 'SHIFT_OPEN',
-          entityType: 'Shift',
-          entityId: newShift.id,
-          details: {
-            openingCash: data.openingCash,
-          },
-        })
-
-        return { shift: newShift, created: true, joined: false }
-      }, { isolationLevel: Prisma.TransactionIsolationLevel.Serializable })
-    } catch (error) {
-      const isRetryable =
-        error instanceof Prisma.PrismaClientKnownRequestError
-        && (error.code === 'P2002' || error.code === 'P2034')
-
-      if (!isRetryable || attempt === 1) {
-        throw error
-      }
-    }
-  }
-
-  throw new Error('SHIFT_OPEN_FAILED')
 }

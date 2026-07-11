@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
@@ -75,16 +75,17 @@ export function MoreScreen() {
         apiJson<Product[]>('/api/products?isActive=true'),
       ])
 
+      // Auth là critical — nếu fail thì toàn màn hình báo lỗi
       if (!userData.success) throw new Error(userData.error || 'Không tải được tài khoản')
-      if (!shiftData.success) throw new Error(shiftData.error || 'Không tải được ca làm')
-      if (!pricingData.success) throw new Error(pricingData.error || 'Không tải được bảng giá')
-      if (!productData.success) throw new Error(productData.error || 'Không tải được kho')
-
       setUser(userData.data ?? null)
-      setShift(shiftData.data ?? null)
-      setPricingCount(pricingData.data?.count ?? 0)
-      setActivePricingCount(pricingData.data?.activeCount ?? pricingData.data?.count ?? 0)
-      setProducts(productData.data ?? [])
+
+      // Các API còn lại degrade gracefully — không block toàn màn hình
+      if (shiftData.success) setShift(shiftData.data ?? null)
+      if (pricingData.success) {
+        setPricingCount(pricingData.data?.count ?? 0)
+        setActivePricingCount(pricingData.data?.activeCount ?? pricingData.data?.count ?? 0)
+      }
+      if (productData.success) setProducts(productData.data ?? [])
     } catch (err) {
       setError((err as Error).message || 'Lỗi kết nối máy chủ')
     } finally {
@@ -101,14 +102,6 @@ export function MoreScreen() {
     // eslint-disable-next-line react-hooks/set-state-in-effect
     void loadData()
   }, [loadData])
-
-  const lowStockCount = useMemo(
-    () => products.filter((product) =>
-      product.type === 'PRODUCT'
-      && product.stockQuantity <= Math.max(1, product.minStockLevel)
-    ).length,
-    [products]
-  )
 
   const isAdmin = user?.role === 'ADMIN'
   const coreLinks = [
@@ -228,17 +221,6 @@ export function MoreScreen() {
             }
             href={isAdmin ? '/pricing' : undefined}
           />
-          <HealthCard
-            good={lowStockCount === 0}
-            title={lowStockCount === 0 ? 'Kho ổn định' : `${lowStockCount} món sắp hết`}
-            description={lowStockCount === 0 ? 'Không có cảnh báo tồn kho.' : 'Kiểm tra kho để tránh bán vượt tồn.'}
-            href="/inventory"
-          />
-          <HealthCard
-            good
-            title="Nghiệp vụ đang khóa đúng"
-            description="Một phiên một người, hội viên hết hạn cần gia hạn, sản phẩm có tồn phải trừ kho."
-          />
         </section>
 
         <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -295,12 +277,6 @@ export function MoreScreen() {
         </section>
 
         <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <SectionTitle title="Hệ thống" />
-          <div className="mt-3 divide-y divide-zinc-100 rounded-lg border border-zinc-200 dark:divide-zinc-800 dark:border-zinc-800">
-            <InfoRow label="Phiên bản" value="0.1.0" />
-            <InfoRow label="Framework" value="Next.js 16" />
-            <InfoRow label="Database" value="PostgreSQL" />
-          </div>
           <Button
             variant="outline-danger"
             size="lg"
@@ -457,14 +433,5 @@ function AdminLink({
       </div>
       <ArrowRight size={16} className="shrink-0 text-zinc-400" />
     </Link>
-  )
-}
-
-function InfoRow({ label, value }: { label: string; value: string }) {
-  return (
-    <div className="flex items-center justify-between gap-3 px-3 py-2.5 text-sm">
-      <span className="text-zinc-500 dark:text-zinc-400">{label}</span>
-      <span className="font-medium text-zinc-950 dark:text-white">{value}</span>
-    </div>
   )
 }

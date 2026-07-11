@@ -5,7 +5,6 @@ export type UserRole = "ADMIN" | "STAFF";
 export type CustomerType = "WALK_IN" | "MEMBER";
 export type SessionStatus = "ACTIVE" | "COMPLETED" | "CANCELLED";
 export type DayType = "WEEKDAY" | "WEEKEND";
-export type PeakType = "PEAK" | "OFF_PEAK";
 export type PaymentMethod = "CASH" | "TRANSFER" | "CARD";
 export type MembershipStatus = "ACTIVE" | "CANCELLED";
 export type InvoiceStatus = "DRAFT" | "PAID" | "CANCELLED";
@@ -27,8 +26,10 @@ export interface SessionPayload {
 export interface ApiResponse<T = unknown> {
   success: boolean;
   data?: T;
+  current?: unknown;
   error?: string;
   message?: string;
+  warnings?: string[];
 }
 
 export interface PaginatedResponse<T> {

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
 import { findOpenOperationalShift, findOpenShiftForStaff } from '@/lib/business/shifts'
 import { prisma } from '@/lib/prisma'
+import { parseStartOfDay, toInputDate } from '@/lib/utils'
 import type { DashboardStats } from '@/types'
 
 type PaymentMethodKey = 'CASH' | 'TRANSFER' | 'CARD'
@@ -91,6 +92,7 @@ export async function GET() {
         include: {
           invoice: {
             select: {
+              id: true,
               invoiceNo: true,
               customer: { select: { fullName: true } },
             },
@@ -176,6 +178,7 @@ export async function GET() {
         id: string
         paidAt: Date
         customerName: string
+        invoiceId: string | null
         invoiceNo: string | null
         paymentMethod: PaymentMethodKey
         grandTotal: number
@@ -221,6 +224,7 @@ export async function GET() {
           payment.invoice?.customer?.fullName
           ?? payment.session?.customer.fullName
           ?? 'Khách lẻ',
+        invoiceId: payment.invoice?.id ?? null,
         invoiceNo: payment.invoice?.invoiceNo ?? null,
         paymentMethod: payment.paymentMethod,
         grandTotal: Number(payment.grandTotal),
@@ -239,10 +243,9 @@ export async function GET() {
 }
 
 function getTodayRange() {
-  const start = new Date()
-  start.setHours(0, 0, 0, 0)
-  const end = new Date(start)
-  end.setDate(end.getDate() + 1)
+  const todayStr = toInputDate(new Date())
+  const start = parseStartOfDay(todayStr)
+  const end = new Date(start.getTime() + 24 * 60 * 60 * 1000)
   return { start, end }
 }
 

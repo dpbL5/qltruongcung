@@ -2,6 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
+import { useEffect, useState } from 'react'
 import {
   Banknote,
   BarChart3,
@@ -11,24 +12,41 @@ import {
   Timer,
   type LucideIcon,
 } from 'lucide-react'
+import type { SessionPayload } from '@/types'
+import { apiJson } from '@/lib/api'
 
 interface NavItem {
   href: string
   label: string
   Icon: LucideIcon
+  adminOnly?: boolean
 }
 
 const navItems: NavItem[] = [
   { href: '/sessions', label: 'Ca', Icon: Timer },
   { href: '/customers', label: 'Hội viên', Icon: ShieldCheck },
   { href: '/inventory', label: 'Kho', Icon: Package },
-  { href: '/pricing', label: 'Giá', Icon: Banknote },
+  { href: '/pricing', label: 'Giá', Icon: Banknote, adminOnly: true },
   { href: '/reports', label: 'Báo cáo', Icon: BarChart3 },
   { href: '/settings', label: 'Thêm', Icon: MoreHorizontal },
 ]
 
 export function BottomNav() {
   const pathname = usePathname()
+  const [role, setRole] = useState<SessionPayload['role'] | null>(null)
+
+  useEffect(() => {
+    apiJson<SessionPayload>('/api/auth/me')
+      .then((response) => {
+        if (response.success && response.data) {
+          setRole(response.data.role)
+        }
+      })
+      .catch(() => setRole(null))
+  }, [])
+
+  const visibleItems = navItems.filter((item) => !item.adminOnly || role === 'ADMIN')
+  const gridCols = visibleItems.length === 5 ? 'grid-cols-5' : 'grid-cols-6'
 
   const isActive = (href: string) =>
     href === '/sessions'
@@ -37,8 +55,8 @@ export function BottomNav() {
 
   return (
     <nav className="safe-area-bottom fixed inset-x-0 bottom-0 z-50 border-t border-zinc-200 bg-white/95 backdrop-blur-md dark:border-zinc-800 dark:bg-zinc-950/95 md:hidden">
-      <div className="grid h-16 grid-cols-6">
-        {navItems.map((item) => {
+      <div className={`grid h-16 ${gridCols}`}>
+        {visibleItems.map((item) => {
           const active = isActive(item.href)
           const { Icon } = item
           return (

@@ -1,6 +1,7 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState, type ReactNode } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { LucideIcon } from 'lucide-react'
 import {
   Banknote,
@@ -71,6 +72,7 @@ interface ReportDashboard {
     id: string
     paidAt: string
     customerName: string
+    invoiceId: string | null
     invoiceNo: string | null
     paymentMethod: PaymentMethod
     grandTotal: number
@@ -647,8 +649,16 @@ function RecentPaymentRow({
 }: {
   payment: ReportDashboard['recentPayments'][number]
 }) {
+  const router = useRouter()
   return (
-    <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
+    <button
+      type="button"
+      onClick={() => {
+        if (payment.invoiceId) router.push(`/invoices/${payment.invoiceId}`)
+      }}
+      disabled={!payment.invoiceId}
+      className="grid w-full grid-cols-[1fr_auto] gap-3 px-4 py-3 text-left transition-colors hover:bg-zinc-50 dark:hover:bg-zinc-800/50 disabled:cursor-default disabled:hover:bg-transparent"
+    >
       <div className="min-w-0">
         <div className="flex items-center gap-2">
           <p className="truncate text-sm font-semibold text-zinc-950 dark:text-white">
@@ -664,7 +674,7 @@ function RecentPaymentRow({
       <p className="self-center text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
         {money(payment.grandTotal)}
       </p>
-    </div>
+    </button>
   )
 }
 
@@ -682,13 +692,11 @@ function buildItemRows(items: ItemBreakdown) {
     { label: 'Phí hội viên', value: items.MEMBERSHIP_FEE, color: 'bg-purple-500' },
     { label: 'Hàng hóa', value: items.PRODUCT, color: 'bg-emerald-500' },
     { label: 'Dịch vụ', value: items.SERVICE, color: 'bg-amber-500' },
+    { label: 'Giảm giá', value: items.DISCOUNT, color: 'bg-red-500' },
   ]
 }
 
 function formatReportDate(value: string): string {
-  const date = new Date(`${value}T00:00:00`)
-  return date.toLocaleDateString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-  })
+  const [, month, day] = value.split('-')
+  return `${day}/${month}`
 }

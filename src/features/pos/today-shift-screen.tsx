@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import {
   Clock,
   LogIn,
@@ -63,6 +63,8 @@ export function TodayShiftScreen() {
   const [checkInDialog, setCheckInDialog] = useState(false)
   const [checkInInitialMode, setCheckInInitialMode] = useState<CheckInMode>('WALK_IN')
   const [checkoutSession, setCheckoutSession] = useState<SessionRow | null>(null)
+  const [sellSession, setSellSession] = useState<SessionRow | null>(null)
+  const [sellPickOpen, setSellPickOpen] = useState(false)
 
   const [, setTick] = useState(0)
   useEffect(() => {
@@ -106,14 +108,6 @@ export function TodayShiftScreen() {
 
   // eslint-disable-next-line react-hooks/set-state-in-effect
   useEffect(() => { void loadData() }, [loadData])
-
-  const lowStockProducts = useMemo(
-    () => products.filter((product) =>
-      product.type === 'PRODUCT'
-      && product.stockQuantity <= Math.max(1, product.minStockLevel)
-    ),
-    [products]
-  )
 
   const activeWalkIns = sessions.filter((session) => session.customer.type === 'WALK_IN').length
   const activeMembers = sessions.filter((session) => session.customer.type === 'MEMBER').length
@@ -204,24 +198,27 @@ export function TodayShiftScreen() {
         />
 
         {!shiftReady && (
-          <NoticeCard
-            tone="warning"
-            title="Cần mở hoặc tham gia ca trước"
-            description="Check-in và thu tiền sẽ bị khóa cho đến khi nhân viên ở trong ca quầy đang mở."
-            action={
-              <Button variant="secondary" size="sm" onClick={() => setOpenShiftDialog(true)}>
-                Mở/Tham gia
+          <div className="fixed inset-0 bottom-16 z-30 flex items-center justify-center bg-black/50 backdrop-blur-sm md:bottom-0">
+            <div className="mx-4 flex w-full max-w-sm flex-col items-center rounded-2xl border border-amber-200 bg-white p-6 text-center shadow-xl dark:border-amber-500/20 dark:bg-zinc-900">
+              <div className="flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-500/20">
+                <ShieldCheck size={24} className="text-amber-600 dark:text-amber-400" />
+              </div>
+              <h3 className="mt-4 text-lg font-bold text-zinc-950 dark:text-white">
+                Chưa mở ca
+              </h3>
+              <p className="mt-2 text-sm text-zinc-500 dark:text-zinc-400">
+                Cần mở hoặc tham gia ca trước khi check-in, checkout và thu tiền.
+              </p>
+              <Button
+                variant="primary"
+                size="md"
+                onClick={() => setOpenShiftDialog(true)}
+                className="mt-5 w-full"
+              >
+                Mở / Tham gia ca
               </Button>
-            }
-          />
-        )}
-
-        {!pricingReady && (
-          <NoticeCard
-            tone="warning"
-            title="Chưa có bảng giá"
-            description="Khách vãng lai cần quy tắc giá hiệu lực cho thời điểm hiện tại. Hội viên vẫn cần ca mở và membership còn hạn."
-          />
+            </div>
+          </div>
         )}
 
         <QuickActions
@@ -230,16 +227,16 @@ export function TodayShiftScreen() {
             setCheckInInitialMode('WALK_IN')
             setCheckInDialog(true)
           }}
-          onRenew={() => {
-            setCheckInInitialMode('MEMBER')
-            setCheckInDialog(true)
-          }}
           onSell={() => {
             if (sessions.length === 0) {
               notifyError('Chưa có phiên đang chơi để bán kèm')
               return
             }
-            setCheckoutSession(sessions[0])
+            if (sessions.length === 1) {
+              setSellSession(sessions[0])
+            } else {
+              setSellPickOpen(true)
+            }
           }}
         />
 
@@ -253,9 +250,6 @@ export function TodayShiftScreen() {
                 {sessions.length} phiên đang hoạt động
               </p>
             </div>
-            <Badge variant={shiftReady ? 'success' : 'warning'}>
-              {shiftReady ? 'Sẵn sàng' : 'Chưa mở ca'}
-            </Badge>
           </div>
 
           {sessions.length === 0 ? (
@@ -284,26 +278,6 @@ export function TodayShiftScreen() {
               ))}
             </div>
           )}
-        </section>
-
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          <AttentionPanel
-            title="Tồn kho cần chú ý"
-            empty="Kho ổn định"
-            items={lowStockProducts.map((product) => ({
-              id: product.id,
-              label: product.name,
-              value: `${product.stockQuantity} còn lại`,
-            }))}
-          />
-          <AttentionPanel
-            title="Ràng buộc POS"
-            empty="Không có cảnh báo"
-            items={[
-              ...(!shiftReady ? [{ id: 'shift', label: 'Chưa mở ca', value: 'Khóa thu tiền' }] : []),
-              ...(!pricingReady ? [{ id: 'pricing', label: 'Chưa có bảng giá', value: 'Khóa vãng lai' }] : []),
-            ]}
-          />
         </section>
       </div>
 
@@ -350,6 +324,29 @@ export function TodayShiftScreen() {
           await loadData()
         }}
       />
+
+      <SellDialog
+        session={sellSession}
+        products={products}
+        shiftReady={shiftReady}
+        submitting={submitting}
+        setSubmitting={setSubmitting}
+        onClose={() => setSellSession(null)}
+        onDone={async () => {
+          setSellSession(null)
+          await loadData()
+        }}
+      />
+
+      <SellPickDialog
+        open={sellPickOpen}
+        sessions={sessions}
+        onClose={() => setSellPickOpen(false)}
+        onSelect={(session) => {
+          setSellPickOpen(false)
+          setSellSession(session)
+        }}
+      />
     </div>
   )
 }
@@ -359,7 +356,7 @@ function TodayShiftSkeleton() {
     <div className="space-y-4 p-4 md:p-6">
       <Skeleton className="h-10 w-40" />
       <Skeleton className="h-32 w-full" />
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
         <Skeleton className="h-20" />
@@ -452,22 +449,19 @@ function MiniStat({ label, value }: { label: string; value: number }) {
 function QuickActions({
   shiftReady,
   onCheckIn,
-  onRenew,
   onSell,
 }: {
   shiftReady: boolean
   onCheckIn: () => void
-  onRenew: () => void
   onSell: () => void
 }) {
   const actions = [
     { label: 'Check-in', Icon: LogIn, onClick: onCheckIn, tone: 'emerald' },
-    { label: 'Gia hạn', Icon: ShieldCheck, onClick: onRenew, tone: 'blue' },
     { label: 'Bán kèm', Icon: Package, onClick: onSell, tone: 'zinc' },
   ] as const
 
   return (
-    <div className="grid grid-cols-3 gap-2">
+    <div className="grid grid-cols-2 gap-2">
       {actions.map(({ label, Icon, onClick, tone }) => (
         <button
           key={label}
@@ -477,9 +471,7 @@ function QuickActions({
           className={`flex min-h-20 flex-col items-center justify-center gap-2 rounded-xl border text-sm font-medium shadow-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${
             tone === 'emerald'
               ? 'border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-500/20 dark:bg-emerald-500/10 dark:text-emerald-300'
-              : tone === 'blue'
-                ? 'border-blue-200 bg-blue-50 text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300'
-                : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200'
+              : 'border-zinc-200 bg-white text-zinc-700 dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200'
           }`}
         >
           <Icon size={20} />
@@ -531,41 +523,6 @@ function ActiveSessionCard({
         </Button>
       </div>
     </div>
-  )
-}
-
-function AttentionPanel({
-  title,
-  empty,
-  items,
-}: {
-  title: string
-  empty: string
-  items: Array<{ id: string; label: string; value: string }>
-}) {
-  return (
-    <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-      <h3 className="text-sm font-semibold text-zinc-950 dark:text-white">{title}</h3>
-      {items.length === 0 ? (
-        <p className="mt-3 text-sm text-zinc-500 dark:text-zinc-400">{empty}</p>
-      ) : (
-        <div className="mt-3 space-y-2">
-          {items.map((item) => (
-            <div
-              key={item.id}
-              className="flex items-center justify-between gap-3 rounded-lg bg-zinc-50 px-3 py-2 dark:bg-zinc-950"
-            >
-              <span className="truncate text-sm text-zinc-700 dark:text-zinc-200">
-                {item.label}
-              </span>
-              <span className="shrink-0 text-xs font-medium text-amber-600 dark:text-amber-300">
-                {item.value}
-              </span>
-            </div>
-          ))}
-        </div>
-      )}
-    </section>
   )
 }
 
@@ -830,7 +787,7 @@ function CheckInDialog({
         notifyError(data.error || 'Không tải được trạng thái hội viên')
         return
       }
-      setCurrentMembership(data.current ?? null)
+      setCurrentMembership((data.current as Membership) ?? null)
       setMembershipActive(!!data.current)
     } catch {
       notifyError('Lỗi kết nối máy chủ')
@@ -901,16 +858,21 @@ function CheckInDialog({
           notifyError('Nhập tên hội viên')
           return
         }
-        const customer = await apiJson<Customer>('/api/customers', jsonRequest({
-          fullName: newMemberName.trim(),
-          phone: newMemberPhone.trim(),
-          type: 'MEMBER',
-        }))
-        if (!customer.success || !customer.data) {
-          notifyError(customer.error || 'Không tạo được hội viên')
+        if (!planId) {
+          notifyError('Chưa có gói hội viên để đăng ký')
           return
         }
-        ok = await renewThenCheckIn(customer.data.id)
+        const registration = await apiJson<{ customer: Customer }>('/api/memberships/register', jsonRequest({
+          fullName: newMemberName.trim(),
+          phone: newMemberPhone.trim(),
+          planId,
+          paymentMethod,
+        }))
+        if (!registration.success || !registration.data) {
+          notifyError(registration.error || 'Không đăng ký được hội viên')
+          return
+        }
+        ok = await createSession(registration.data.customer.id)
       } else if (selectedMember) {
         ok = membershipActive
           ? await createSession(selectedMember.id)
@@ -1362,6 +1324,236 @@ function CheckoutDrawer({
           </div>
         </div>
       )}
+    </Modal>
+  )
+}
+
+function SellDialog({
+  session,
+  products,
+  shiftReady,
+  submitting,
+  setSubmitting,
+  onClose,
+  onDone,
+}: {
+  session: SessionRow | null
+  products: Product[]
+  shiftReady: boolean
+  submitting: boolean
+  setSubmitting: (value: boolean) => void
+  onClose: () => void
+  onDone: () => Promise<void>
+}) {
+  const { success: notifySuccess, error: notifyError } = useToast()
+  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
+  const [cart, setCart] = useState<Record<string, number>>({})
+
+  useEffect(() => {
+    if (session) {
+      /* eslint-disable react-hooks/set-state-in-effect */
+      setPaymentMethod('CASH')
+      setCart({})
+      /* eslint-enable react-hooks/set-state-in-effect */
+    }
+  }, [session])
+
+  const cartLines = products
+    .map((product) => ({
+      product,
+      quantity: cart[product.id] ?? 0,
+      total: (cart[product.id] ?? 0) * toNumber(product.price),
+    }))
+    .filter((line) => line.quantity > 0)
+
+  const grandTotal = cartLines.reduce((sum, line) => sum + line.total, 0)
+
+  const changeCart = (product: Product, delta: number) => {
+    setCart((current) => {
+      const currentQuantity = current[product.id] ?? 0
+      const nextQuantity = currentQuantity + delta
+      if (nextQuantity <= 0) {
+        const next = { ...current }
+        delete next[product.id]
+        return next
+      }
+      if (product.type === 'PRODUCT' && nextQuantity > product.stockQuantity) return current
+      return { ...current, [product.id]: nextQuantity }
+    })
+  }
+
+  const handleSell = async () => {
+    if (!session) return
+    if (!shiftReady) {
+      notifyError('Cần mở ca trước khi bán hàng')
+      return
+    }
+    if (cartLines.length === 0) {
+      notifyError('Chưa chọn sản phẩm hoặc dịch vụ')
+      return
+    }
+
+    setSubmitting(true)
+    try {
+      const data = await apiJson(`/api/sessions/${session.id}/sell`, jsonRequest({
+        paymentMethod,
+        items: cartLines.map((line) => ({
+          productId: line.product.id,
+          quantity: line.quantity,
+        })),
+      }))
+
+      if (!data.success) {
+        notifyError(data.error || 'Không bán được')
+        return
+      }
+
+      notifySuccess(`Đã bán ${money(grandTotal)}`)
+      await onDone()
+    } catch {
+      notifyError('Lỗi kết nối máy chủ')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <Modal
+      open={!!session}
+      onClose={onClose}
+      title={session ? `Bán kèm - ${session.customer.fullName}` : 'Bán kèm'}
+      description="Thêm đồ uống / dịch vụ cho phiên đang chơi"
+      size="lg"
+      footer={
+        <Button
+          variant="primary"
+          size="lg"
+          fullWidth
+          disabled={submitting || !shiftReady || cartLines.length === 0}
+          onClick={handleSell}
+        >
+          {submitting ? 'Đang xử lý...' : `Bán ${money(grandTotal)}`}
+        </Button>
+      }
+    >
+      {session && (
+        <div className="space-y-4">
+          <div>
+            <Label htmlFor="sell-payment-method">Phương thức thanh toán</Label>
+            <Select
+              id="sell-payment-method"
+              value={paymentMethod}
+              onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
+            >
+              <option value="CASH">{paymentMethodLabel('CASH')}</option>
+              <option value="TRANSFER">{paymentMethodLabel('TRANSFER')}</option>
+              <option value="CARD">{paymentMethodLabel('CARD')}</option>
+            </Select>
+          </div>
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <Label>Đồ uống / dịch vụ</Label>
+              <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                {cartLines.length} món
+              </span>
+            </div>
+            <div className="max-h-72 space-y-2 overflow-y-auto pr-1">
+              {products.length === 0 ? (
+                <p className="rounded-lg bg-zinc-50 p-3 text-sm text-zinc-500 dark:bg-zinc-950 dark:text-zinc-400">
+                  Chưa có sản phẩm hoặc dịch vụ.
+                </p>
+              ) : (
+                products.map((product) => {
+                  const quantity = cart[product.id] ?? 0
+                  const outOfStock = product.type === 'PRODUCT' && product.stockQuantity <= 0
+                  return (
+                    <div
+                      key={product.id}
+                      className="flex items-center justify-between gap-3 rounded-lg border border-zinc-200 px-3 py-2 dark:border-zinc-800"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium text-zinc-950 dark:text-white">
+                          {product.name}
+                        </p>
+                        <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                          {money(product.price)}
+                          {product.type === 'PRODUCT' ? ` · còn ${product.stockQuantity}` : ' · dịch vụ'}
+                        </p>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => changeCart(product, -1)}
+                          disabled={quantity === 0}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+                        >
+                          <Minus size={14} />
+                        </button>
+                        <span className="w-5 text-center text-sm tabular-nums text-zinc-950 dark:text-white">
+                          {quantity}
+                        </span>
+                        <button
+                          type="button"
+                          onClick={() => changeCart(product, 1)}
+                          disabled={outOfStock}
+                          className="flex h-8 w-8 items-center justify-center rounded-lg bg-zinc-950 text-white disabled:opacity-40 dark:bg-white dark:text-zinc-950"
+                        >
+                          <Plus size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </Modal>
+  )
+}
+
+function SellPickDialog({
+  open,
+  sessions,
+  onClose,
+  onSelect,
+}: {
+  open: boolean
+  sessions: SessionRow[]
+  onClose: () => void
+  onSelect: (session: SessionRow) => void
+}) {
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Chọn phiên để bán kèm"
+      size="sm"
+    >
+      <div className="space-y-2">
+        {sessions.map((session) => (
+          <button
+            key={session.id}
+            type="button"
+            onClick={() => onSelect(session)}
+            className="flex w-full items-center justify-between rounded-lg border border-zinc-200 px-3 py-3 text-left transition-colors hover:bg-zinc-50 dark:border-zinc-800 dark:hover:bg-zinc-900"
+          >
+            <div>
+              <p className="text-sm font-semibold text-zinc-950 dark:text-white">
+                {session.customer.fullName}
+              </p>
+              <p className="text-xs text-zinc-500 dark:text-zinc-400">
+                {calcElapsedHMS(session.startTime)} · {formatClock(session.startTime)}
+              </p>
+            </div>
+            <Badge variant={session.customer.type === 'MEMBER' ? 'purple' : 'default'} size="sm">
+              {session.customer.type === 'MEMBER' ? 'Hội viên' : 'Vãng lai'}
+            </Badge>
+          </button>
+        ))}
+      </div>
     </Modal>
   )
 }

@@ -20,7 +20,6 @@ const basePricingRuleSchema = z.object({
   hourTo: z.number().int().min(1, 'Giờ kết thúc phải từ 1-24').max(24, 'Giờ kết thúc phải từ 1-24').nullable().optional(),
   ratePerHour: z.number().positive('Giá theo giờ phải lớn hơn 0'),
   dayType: z.enum(['WEEKDAY', 'WEEKEND']).optional(),
-  peakType: z.enum(['PEAK', 'OFF_PEAK']).optional(),
   effectiveFrom: z.string().min(1, 'Ngày hiệu lực không được để trống'),
   effectiveTo: z.string().nullable().optional(),
 })

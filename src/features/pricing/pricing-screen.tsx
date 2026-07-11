@@ -393,9 +393,9 @@ function PricingRuleCard({
             </p>
             <StatusBadge status={status} />
           </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          <div className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
             {formatWeeklyDays(days)} · {formatHourRange(rule.hourFrom, rule.hourTo)}
-          </p>
+          </div>
         </div>
         <p className="self-start text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
           {money(rule.ratePerHour)}

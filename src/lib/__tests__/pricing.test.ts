@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { createPricingRuleSchema, updatePricingRuleSchema } from '@/lib/validations/pricing'
-import { calcHours, getDayType, getPeakType } from '@/lib/utils'
+import { calcHours, getDayType } from '@/lib/utils'
 
 // ── createPricingRuleSchema ───────────────────────────────
 
@@ -38,11 +38,6 @@ describe('createPricingRuleSchema', () => {
 
   it('hợp lệ khi không có effectiveTo (không hết hạn)', () => {
     const result = createPricingRuleSchema.safeParse({ ...validRule, effectiveTo: null })
-    expect(result.success).toBe(true)
-  })
-
-  it('hợp lệ với peakType = PEAK', () => {
-    const result = createPricingRuleSchema.safeParse({ ...validRule, peakType: 'PEAK' })
     expect(result.success).toBe(true)
   })
 
@@ -233,54 +228,6 @@ describe('getDayType', () => {
     for (const date of days) {
       expect(getDayType(date)).not.toBe('HOLIDAY')
     }
-  })
-})
-
-// ── getPeakType ────────────────────────────────────────────
-
-describe('getPeakType', () => {
-  it('9:00 → PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T09:00:00'))).toBe('PEAK')
-  })
-
-  it('10:30 → PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T10:30:00'))).toBe('PEAK')
-  })
-
-  it('11:00 → OFF_PEAK (exclusive end)', () => {
-    expect(getPeakType(new Date('2026-07-09T11:00:00'))).toBe('OFF_PEAK')
-  })
-
-  it('14:00 → PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T14:00:00'))).toBe('PEAK')
-  })
-
-  it('15:59 → PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T15:59:00'))).toBe('PEAK')
-  })
-
-  it('16:00 → OFF_PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T16:00:00'))).toBe('OFF_PEAK')
-  })
-
-  it('19:00 → PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T19:00:00'))).toBe('PEAK')
-  })
-
-  it('21:00 → OFF_PEAK (exclusive end)', () => {
-    expect(getPeakType(new Date('2026-07-09T21:00:00'))).toBe('OFF_PEAK')
-  })
-
-  it('8:00 sáng → OFF_PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T08:00:00'))).toBe('OFF_PEAK')
-  })
-
-  it('12:00 trưa → OFF_PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T12:00:00'))).toBe('OFF_PEAK')
-  })
-
-  it('22:00 tối → OFF_PEAK', () => {
-    expect(getPeakType(new Date('2026-07-09T22:00:00'))).toBe('OFF_PEAK')
   })
 })
 

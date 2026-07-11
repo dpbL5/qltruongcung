@@ -29,6 +29,17 @@ export async function GET(request: NextRequest) {
     const [customers, total] = await Promise.all([
       prisma.customer.findMany({
         where,
+        select: {
+          id: true,
+          fullName: true,
+          phone: true,
+          type: true,
+          totalHoursPlayed: true,
+          totalSpent: true,
+          createdAt: true,
+          updatedAt: true,
+          // notes intentionally excluded from list view — may contain PII
+        },
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },

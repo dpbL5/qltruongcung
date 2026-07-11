@@ -25,6 +25,19 @@ export async function GET(request: NextRequest) {
           : {}),
         ...(isActive ? { isActive: isActive === 'true' } : {}),
       },
+      select: {
+        id: true,
+        name: true,
+        sku: true,
+        type: true,
+        price: true,
+        stockQuantity: true,
+        minStockLevel: true,
+        isActive: true,
+        createdAt: true,
+        updatedAt: true,
+        // costPrice intentionally excluded — sensitive business data
+      },
       orderBy: { name: 'asc' },
       take: 100,
     })

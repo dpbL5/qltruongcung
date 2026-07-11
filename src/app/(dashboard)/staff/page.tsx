@@ -4,9 +4,13 @@ import { useCallback, useEffect, useMemo, useState, type FormEvent } from 'react
 import {
   History,
   Key,
+  LogIn,
+  LogOut,
   Plus,
   RefreshCw,
   Search,
+  ShoppingBag,
+  Timer,
   UserCheck,
   UserCog,
   UserPlus,
@@ -60,36 +64,29 @@ const emptyCreateForm = {
 }
 
 const actionLabels: Record<string, string> = {
-  USER_CREATE: 'Tạo tài khoản',
-  USER_UPDATE: 'Cập nhật tài khoản',
-  USER_PASSWORD_RESET: 'Đổi mật khẩu',
-  SESSION_CHECK_IN: 'Check-in',
-  SESSION_CHECK_OUT: 'Checkout',
-  SESSION_CANCEL: 'Huỷ phiên',
-  SESSION_UPDATE: 'Cập nhật phiên',
-  SHIFT_OPEN: 'Mở ca',
-  SHIFT_JOIN: 'Tham gia ca',
-  SHIFT_CLOSE: 'Đóng ca',
-  PRODUCT_CREATE: 'Thêm hàng hóa',
-  STOCK_MOVEMENT: 'Điều chỉnh kho',
-  PRICING_RULE_CREATE: 'Tạo bảng giá',
-  PRICING_RULE_UPDATE: 'Cập nhật bảng giá',
-  PRICING_RULE_DELETE: 'Xoá bảng giá',
-  MEMBERSHIP_REGISTER: 'Đăng ký hội viên',
-  MEMBERSHIP_RENEW: 'Gia hạn hội viên',
-  MEMBERSHIP_PLAN_UPDATE: 'Cập nhật gói hội viên',
-  MEMBERSHIP_PLAN_DEACTIVATE: 'Ngừng dùng gói hội viên',
-  MEMBERSHIP_PLAN_DELETE: 'Xoá gói hội viên',
-}
-
-const entityLabels: Record<string, string> = {
-  User: 'Tài khoản',
-  Session: 'Phiên chơi',
-  Shift: 'Ca làm',
-  Product: 'Kho',
-  PricingRule: 'Bảng giá',
-  Membership: 'Hội viên',
-  MembershipPlan: 'Gói hội viên',
+  USER_CREATE: 'tạo tài khoản',
+  USER_UPDATE: 'cập nhật tài khoản',
+  USER_PASSWORD_RESET: 'đổi mật khẩu',
+  SESSION_CHECK_IN: 'check-in khách',
+  SESSION_CHECK_OUT: 'checkout khách',
+  SESSION_SELL: 'bán kèm',
+  SESSION_CANCEL: 'huỷ phiên',
+  SESSION_UPDATE: 'sửa phiên',
+  SHIFT_OPEN: 'mở ca',
+  SHIFT_JOIN: 'vào ca',
+  SHIFT_CLOSE: 'đóng ca',
+  SHIFT_PARTICIPANT_UPSERT: 'thêm người vào ca',
+  SHIFT_PARTICIPANT_REMOVE: 'rời ca',
+  PRODUCT_CREATE: 'thêm hàng',
+  STOCK_MOVEMENT: 'điều chỉnh kho',
+  PRICING_RULE_CREATE: 'tạo bảng giá',
+  PRICING_RULE_UPDATE: 'sửa bảng giá',
+  PRICING_RULE_DELETE: 'xoá bảng giá',
+  MEMBERSHIP_REGISTER: 'đăng ký hội viên',
+  MEMBERSHIP_RENEW: 'gia hạn hội viên',
+  MEMBERSHIP_PLAN_UPDATE: 'sửa gói hội viên',
+  MEMBERSHIP_PLAN_DEACTIVATE: 'ngừng gói hội viên',
+  MEMBERSHIP_PLAN_DELETE: 'xoá gói hội viên',
 }
 
 export default function StaffPage() {
@@ -694,7 +691,6 @@ function ActivityLogsTab({ users }: { users: UserRow[] }) {
               {logs.length} dòng mới nhất
             </p>
           </div>
-          <Badge variant="blue">ActivityLog</Badge>
         </div>
 
         {loading ? (
@@ -707,12 +703,24 @@ function ActivityLogsTab({ users }: { users: UserRow[] }) {
           <EmptyState
             icon={History}
             message="Chưa có nhật ký hoạt động"
-            description="Thử đổi bộ lọc hoặc thao tác nghiệp vụ để hệ thống ghi nhận log."
+            description="Nhật ký sẽ xuất hiện khi có hoạt động check-in, checkout, hoặc thay đổi dữ liệu."
           />
         ) : (
           <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-            {logs.map((log) => (
-              <ActivityLogItem key={log.id} log={log} />
+            {groupLogsByDate(logs).map((group) => (
+              <div key={group.date}>
+                <div className="sticky top-0 z-10 border-b border-zinc-100 bg-zinc-50/95 px-4 py-2.5 backdrop-blur-sm dark:border-zinc-800 dark:bg-zinc-950/95">
+                  <span className="text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                    {group.label}
+                  </span>
+                  <span className="ml-2 text-[10px] text-zinc-400 dark:text-zinc-500">
+                    {group.items.length} hoạt động
+                  </span>
+                </div>
+                {group.items.map((log) => (
+                  <ActivityLogItem key={log.id} log={log} />
+                ))}
+              </div>
             ))}
           </div>
         )}
@@ -722,47 +730,44 @@ function ActivityLogsTab({ users }: { users: UserRow[] }) {
 }
 
 function ActivityLogItem({ log }: { log: ActivityLogRow }) {
+  const iconColor = getLogColor(log.action)
   return (
-    <div className="px-4 py-3">
-      <div className="grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-2">
-            <Badge variant={log.entityType === 'User' ? 'purple' : 'default'} size="sm">
-              {entityLabels[log.entityType] ?? log.entityType}
-            </Badge>
-            <p className="text-sm font-semibold text-zinc-950 dark:text-white">
-              {actionLabels[log.action] ?? log.action.replaceAll('_', ' ')}
-            </p>
-          </div>
-          <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
-            {log.user.fullName} · {log.user.username}
-          </p>
-          <p className="mt-2 text-xs text-zinc-600 dark:text-zinc-300">
-            {summarizeDetails(log.details)}
-          </p>
-        </div>
-        <div className="text-left md:text-right">
-          <p className="text-xs font-medium tabular-nums text-zinc-500 dark:text-zinc-400">
-            {formatDateTime(log.createdAt)}
-          </p>
-          <p className="mt-1 max-w-[220px] truncate font-mono text-[10px] text-zinc-400 md:ml-auto">
-            {log.entityId}
-          </p>
-        </div>
+    <div className="flex items-center gap-3 px-4 py-3">
+      <div className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${iconColor.bg}`}>
+        {getLogIcon(log.action)}
       </div>
-
-      {log.details ? (
-        <details className="mt-3">
-          <summary className="cursor-pointer text-xs font-medium text-blue-600 dark:text-blue-300">
-            Chi tiết
-          </summary>
-          <pre className="mt-2 max-h-56 overflow-auto rounded-lg bg-zinc-50 p-3 text-[11px] leading-relaxed text-zinc-600 dark:bg-zinc-950 dark:text-zinc-300">
-            {JSON.stringify(log.details, null, 2)}
-          </pre>
-        </details>
-      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm">
+          <span className="font-semibold text-zinc-900 dark:text-white">{log.user.fullName}</span>
+          {' '}
+          <span className="text-zinc-500 dark:text-zinc-400">
+            {actionLabels[log.action] ?? log.action.replaceAll('_', ' ').toLowerCase()}
+          </span>
+        </p>
+      </div>
+      <span className="shrink-0 text-xs tabular-nums text-zinc-400 dark:text-zinc-500">
+        {formatDateTime(log.createdAt)}
+      </span>
     </div>
   )
+}
+
+function getLogColor(action: string) {
+  if (action.startsWith('SESSION')) return { bg: 'bg-emerald-100 text-emerald-600 dark:bg-emerald-500/20 dark:text-emerald-400' }
+  if (action.startsWith('SHIFT')) return { bg: 'bg-amber-100 text-amber-600 dark:bg-amber-500/20 dark:text-amber-400' }
+  if (action.startsWith('MEMBERSHIP')) return { bg: 'bg-purple-100 text-purple-600 dark:bg-purple-500/20 dark:text-purple-400' }
+  if (action.startsWith('PRICING') || action.startsWith('PRODUCT') || action.startsWith('STOCK')) return { bg: 'bg-blue-100 text-blue-600 dark:bg-blue-500/20 dark:text-blue-400' }
+  return { bg: 'bg-zinc-100 text-zinc-600 dark:bg-zinc-500/20 dark:text-zinc-400' }
+}
+
+function getLogIcon(action: string) {
+  if (action === 'SESSION_CHECK_IN') return <LogIn size={16} />
+  if (action === 'SESSION_CHECK_OUT') return <LogOut size={16} />
+  if (action === 'SESSION_SELL') return <ShoppingBag size={16} />
+  if (action.startsWith('SHIFT')) return <Timer size={16} />
+  if (action.startsWith('MEMBERSHIP')) return <UserCheck size={16} />
+  if (action.startsWith('USER')) return <UserCog size={16} />
+  return <History size={16} />
 }
 
 function StaffStat({
@@ -826,53 +831,39 @@ function formatDate(value: string): string {
 
 function formatDateTime(value: string): string {
   return new Date(value).toLocaleString('vi-VN', {
-    day: '2-digit',
-    month: '2-digit',
-    year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
   })
 }
 
-function summarizeDetails(details: unknown): string {
-  if (!details || typeof details !== 'object' || Array.isArray(details)) {
-    return 'Không có chi tiết'
-  }
+function formatDateLabel(dateStr: string): string {
+  const date = new Date(dateStr)
+  const today = new Date()
+  const yesterday = new Date(today)
+  yesterday.setDate(yesterday.getDate() - 1)
 
-  const record = details as Record<string, unknown>
-  if (typeof record.targetUsername === 'string') {
-    return `Tài khoản ${record.targetUsername}`
-  }
-  if (typeof record.username === 'string') {
-    return `Tài khoản ${record.username}`
-  }
-  if (typeof record.name === 'string') {
-    return record.name
-  }
+  if (date.toDateString() === today.toDateString()) return 'Hôm nay'
+  if (date.toDateString() === yesterday.toDateString()) return 'Hôm qua'
 
-  const summary = Object.entries(record)
-    .filter(([, value]) => ['string', 'number', 'boolean'].includes(typeof value))
-    .slice(0, 3)
-    .map(([key, value]) => `${detailLabel(key)}: ${formatDetailValue(value)}`)
-
-  return summary.length > 0 ? summary.join(' · ') : 'Có chi tiết thay đổi'
+  return date.toLocaleDateString('vi-VN', {
+    weekday: 'long',
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+  })
 }
 
-function detailLabel(key: string): string {
-  const labels: Record<string, string> = {
-    fullName: 'Họ tên',
-    role: 'Vai trò',
-    isActive: 'Trạng thái',
-    openingCash: 'Tiền đầu ca',
-    stockQuantity: 'Tồn kho',
-    paymentMethod: 'Thanh toán',
+function groupLogsByDate(logs: ActivityLogRow[]) {
+  const groups = new Map<string, ActivityLogRow[]>()
+  for (const log of logs) {
+    const date = new Date(log.createdAt).toDateString()
+    if (!groups.has(date)) groups.set(date, [])
+    groups.get(date)!.push(log)
   }
-
-  return labels[key] ?? key
+  return Array.from(groups.entries()).map(([date, items]) => ({
+    date,
+    label: formatDateLabel(date),
+    items,
+  }))
 }
 
-function formatDetailValue(value: unknown): string {
-  if (typeof value === 'boolean') return value ? 'Có' : 'Không'
-  if (value === null || value === undefined) return ''
-  return String(value)
-}

@@ -1,7 +1,20 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAuth } from '@/lib/auth'
-import { checkoutSessionSchema } from '@/lib/validations/session'
-import { checkOut, mapCheckoutError } from '@/lib/business/use-cases/checkOut'
+import { sellItems, mapSellItemsError } from '@/lib/business/use-cases/sellItems'
+import { z } from 'zod'
+
+const sellSchema = z.object({
+  paymentMethod: z.enum(['CASH', 'TRANSFER', 'CARD']),
+  items: z
+    .array(
+      z.object({
+        productId: z.string().uuid('ID sản phẩm không hợp lệ'),
+        quantity: z.number().int().positive('Số lượng phải lớn hơn 0'),
+      })
+    )
+    .min(1, 'Cần chọn ít nhất một sản phẩm'),
+  notes: z.string().max(500).optional(),
+})
 
 export async function POST(
   request: NextRequest,
@@ -12,7 +25,7 @@ export async function POST(
     const { id } = await params
 
     const body = await request.json()
-    const parsed = checkoutSessionSchema.safeParse(body)
+    const parsed = sellSchema.safeParse(body)
 
     if (!parsed.success) {
       return NextResponse.json(
@@ -21,23 +34,21 @@ export async function POST(
       )
     }
 
-    const result = await checkOut({
+    const result = await sellItems({
       sessionId: id,
       staffId: auth.userId,
       paymentMethod: parsed.data.paymentMethod,
-      endTime: parsed.data.endTime ? new Date(parsed.data.endTime) : undefined,
       items: parsed.data.items,
       notes: parsed.data.notes,
     })
 
     return NextResponse.json({ success: true, data: result })
   } catch (error) {
-    const message = (error as Error).message
-    if (message === 'UNAUTHORIZED') {
+    if ((error as Error).message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
-    console.error('POST /api/sessions/[id]/checkout error:', error)
-    const mapped = mapCheckoutError(error as Error)
+    console.error('POST /api/sessions/[id]/sell error:', error)
+    const mapped = mapSellItemsError(error as Error)
     return NextResponse.json(
       { success: false, code: mapped.code, error: mapped.message },
       { status: mapped.status }
