@@ -12,6 +12,7 @@
     "postinstall": "prisma generate",
     "db:push": "prisma db push",
     "seed:admin": "tsx prisma/seed-admin.ts",
+    "seed:expired": "tsx prisma/seed-expired-customer.ts",
     "check:db": "tsx scripts/check-db.ts"
   },
   "dependencies": {
