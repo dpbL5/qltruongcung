@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireMutationAuth } from '@/lib/auth'
 import { sellItems, mapSellItemsError } from '@/lib/business/use-cases/sellItems'
 import { z } from 'zod'
 
@@ -21,7 +21,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireAuth()
+    const auth = await requireMutationAuth(request)
     const { id } = await params
 
     const body = await request.json()
@@ -44,8 +44,12 @@ export async function POST(
 
     return NextResponse.json({ success: true, data: result })
   } catch (error) {
-    if ((error as Error).message === 'UNAUTHORIZED') {
+    const message = (error as Error).message
+    if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     console.error('POST /api/sessions/[id]/sell error:', error)
     const mapped = mapSellItemsError(error as Error)

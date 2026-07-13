@@ -32,6 +32,7 @@ import {
   paymentMethodLabel,
   toNumber,
 } from './format'
+import type { PlayTimeQuote, PromotionSnapshot } from '@/types'
 import type {
   Customer,
   Membership,
@@ -43,6 +44,10 @@ import type {
 } from './types'
 
 type CheckInMode = 'WALK_IN' | 'MEMBER'
+
+interface CheckoutResponse {
+  grandTotal: number
+}
 
 export function TodayShiftScreen() {
   const { success: notifySuccess, error: notifyError } = useToast()
@@ -1141,22 +1146,93 @@ function CheckoutDrawer({
   const { success: notifySuccess, error: notifyError } = useToast()
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [cart, setCart] = useState<Record<string, number>>({})
+  const [playQuote, setPlayQuote] = useState<PlayTimeQuote | null>(null)
+  const [promotions, setPromotions] = useState<PromotionSnapshot[]>([])
+  const [promotionRuleId, setPromotionRuleId] = useState('')
+  const [promotionsLoading, setPromotionsLoading] = useState(false)
+  const [promotionsError, setPromotionsError] = useState('')
+  const [quoteLoading, setQuoteLoading] = useState(false)
+  const [quoteError, setQuoteError] = useState('')
 
   useEffect(() => {
     if (session) {
       /* eslint-disable react-hooks/set-state-in-effect */
       setPaymentMethod('CASH')
       setCart({})
+      setPromotionRuleId('')
+      setPromotions([])
+      setPromotionsError('')
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [session])
 
+  useEffect(() => {
+    /* eslint-disable react-hooks/set-state-in-effect */
+    if (!session) {
+      setPlayQuote(null)
+      setQuoteError('')
+      return
+    }
+
+    let cancelled = false
+    setPlayQuote(null)
+    const loadQuote = async () => {
+      setQuoteLoading(true)
+      setQuoteError('')
+      try {
+        const params = promotionRuleId ? `?promotionRuleId=${promotionRuleId}` : ''
+        const data = await apiJson<PlayTimeQuote>(`/api/sessions/${session.id}/checkout-preview${params}`)
+        if (!data.success || !data.data) {
+          throw new Error(data.error || 'Không tính được tiền giờ chơi')
+        }
+        if (!cancelled) setPlayQuote(data.data)
+      } catch (quoteLoadError) {
+        if (!cancelled) setQuoteError((quoteLoadError as Error).message || 'Không tính được tiền giờ chơi')
+      } finally {
+        if (!cancelled) setQuoteLoading(false)
+      }
+    }
+
+    void loadQuote()
+    const intervalId = window.setInterval(() => void loadQuote(), 30_000)
+    return () => {
+      cancelled = true
+      window.clearInterval(intervalId)
+    }
+    /* eslint-enable react-hooks/set-state-in-effect */
+  }, [session, promotionRuleId])
+
+  useEffect(() => {
+    if (!session || session.customer.type === 'MEMBER') return
+
+    let cancelled = false
+    const loadPromotions = async () => {
+      setPromotionsLoading(true)
+      setPromotionsError('')
+      try {
+        const data = await apiJson<PromotionSnapshot[]>('/api/promotions/available')
+        if (!data.success) {
+          throw new Error(data.error || 'Không tải được khuyến mại')
+        }
+        if (!cancelled) setPromotions(data.data ?? [])
+      } catch (promotionLoadError) {
+        if (!cancelled) {
+          setPromotions([])
+          setPromotionsError((promotionLoadError as Error).message || 'Không tải được khuyến mại')
+        }
+      } finally {
+        if (!cancelled) setPromotionsLoading(false)
+      }
+    }
+
+    void loadPromotions()
+    return () => { cancelled = true }
+  }, [session])
+
   const isMember = session?.customer.type === 'MEMBER'
-  const playSubtotal = session
-    ? isMember
-      ? 0
-      : calcCurrentPlayCost(session.startTime, session.hourlyRate)
-    : 0
+  const playSubtotal = playQuote?.subtotal ?? 0
+  const playDiscount = playQuote?.discountAmount ?? 0
+  const playTotal = playQuote?.grandTotal ?? 0
 
   const cartLines = products
     .map((product) => ({
@@ -1167,7 +1243,7 @@ function CheckoutDrawer({
     .filter((line) => line.quantity > 0)
 
   const productSubtotal = cartLines.reduce((sum, line) => sum + line.total, 0)
-  const grandTotal = playSubtotal + productSubtotal
+  const grandTotal = playTotal + productSubtotal
 
   const changeCart = (product: Product, delta: number) => {
     setCart((current) => {
@@ -1192,8 +1268,9 @@ function CheckoutDrawer({
 
     setSubmitting(true)
     try {
-      const data = await apiJson(`/api/sessions/${session.id}/checkout`, jsonRequest({
+      const data = await apiJson<CheckoutResponse>(`/api/sessions/${session.id}/checkout`, jsonRequest({
         paymentMethod,
+        promotionRuleId: promotionRuleId || null,
         items: cartLines.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
@@ -1205,7 +1282,7 @@ function CheckoutDrawer({
         return
       }
 
-      notifySuccess(`Đã thu ${money(grandTotal)}`)
+      notifySuccess(`Đã thu ${money(data.data?.grandTotal ?? grandTotal)}`)
       await onDone()
     } catch {
       notifyError('Lỗi kết nối máy chủ')
@@ -1226,7 +1303,7 @@ function CheckoutDrawer({
           variant="inverse"
           size="lg"
           fullWidth
-          disabled={submitting || !shiftReady}
+          disabled={submitting || !shiftReady || quoteLoading || !!quoteError || !playQuote}
           onClick={handleCheckout}
         >
           {submitting ? 'Đang thu tiền...' : 'Thu tiền & kết thúc'}
@@ -1236,10 +1313,25 @@ function CheckoutDrawer({
       {session && (
         <div className="space-y-4">
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
-            <InvoiceRow
-              label={isMember ? 'Giờ chơi hội viên' : 'Giờ chơi vãng lai'}
-              value={money(playSubtotal)}
-            />
+            {quoteLoading ? (
+              <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tính tiền giờ chơi...</p>
+            ) : quoteError ? (
+              <p className="text-sm text-red-600 dark:text-red-300">{quoteError}</p>
+            ) : (
+              <>
+                <InvoiceRow
+                  label={isMember ? 'Giờ chơi hội viên' : 'Giờ chơi vãng lai'}
+                  value={money(playSubtotal)}
+                />
+                {playQuote?.promotion && playDiscount > 0 && (
+                  <div className="mt-2 flex justify-between gap-3 text-sm text-emerald-700 dark:text-emerald-300">
+                    <span className="truncate">Khuyến mại · {playQuote.promotion.name}</span>
+                    <span className="shrink-0 tabular-nums">-{money(playDiscount)}</span>
+                  </div>
+                )}
+                {playDiscount > 0 && <InvoiceRow label="Tiền giờ chơi sau giảm" value={money(playTotal)} />}
+              </>
+            )}
             {cartLines.map((line) => (
               <InvoiceRow
                 key={line.product.id}
@@ -1248,9 +1340,35 @@ function CheckoutDrawer({
               />
             ))}
             <div className="mt-3 border-t border-zinc-200 pt-3 dark:border-zinc-800">
-              <InvoiceRow label="Tổng thu" value={money(grandTotal)} strong />
+              <InvoiceRow label="Tổng thu" value={quoteError ? '—' : money(grandTotal)} strong />
             </div>
           </div>
+
+          {!isMember && (
+            <div>
+              <Label htmlFor="checkout-promotion">Khuyến mại giờ chơi</Label>
+              <Select
+                id="checkout-promotion"
+                value={promotionRuleId}
+                disabled={promotionsLoading}
+                onChange={(event) => setPromotionRuleId(event.target.value)}
+              >
+                <option value="">Không áp dụng khuyến mại</option>
+                {promotions.map((promotion) => (
+                  <option key={promotion.ruleId} value={promotion.ruleId}>
+                    {formatPromotionOption(promotion)}
+                  </option>
+                ))}
+              </Select>
+              {promotionsError ? (
+                <p className="mt-1 text-xs text-red-600 dark:text-red-300">{promotionsError}</p>
+              ) : (
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Chọn một khuyến mại còn hiệu lực tại thời điểm thu tiền.
+                </p>
+              )}
+            </div>
+          )}
 
           <div>
             <Label htmlFor="payment-method">Phương thức thanh toán</Label>
@@ -1556,6 +1674,16 @@ function SellPickDialog({
       </div>
     </Modal>
   )
+}
+
+function formatPromotionOption(promotion: PromotionSnapshot): string {
+  if (promotion.discountType === 'PERCENT' || promotion.discountType === 'PERCENT_PLAY_TIME') {
+    return `${promotion.name} · Giảm ${promotion.discountValue}%`
+  }
+  if (promotion.discountType === 'FIXED_PER_HOUR') {
+    return `${promotion.name} · Giảm ${money(promotion.discountValue)}/giờ`
+  }
+  return `${promotion.name} · Giảm ${money(promotion.discountValue)}`
 }
 
 function InvoiceRow({

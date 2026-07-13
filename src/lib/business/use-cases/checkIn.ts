@@ -99,6 +99,7 @@ async function checkInAnonymousWalkIn({
         customerId: anonCustomer.id,
         customerType: 'WALK_IN',
         shiftId: openShift.id,
+        hourlyRate: applicableRate,
       },
     })
 
@@ -181,6 +182,7 @@ async function checkInRegisteredCustomer({
         customerType: customer.type,
         membershipId,
         shiftId: openShift.id,
+        hourlyRate: rate,
       },
     })
 

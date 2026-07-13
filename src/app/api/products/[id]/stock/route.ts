@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { logActivity } from '@/lib/business/audit'
 import { findOpenShiftForStaff } from '@/lib/business/shifts'
 import { prisma } from '@/lib/prisma'
@@ -11,6 +12,7 @@ export async function POST(
 ) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const { id } = await params
 
     const body = await request.json()
@@ -79,6 +81,9 @@ export async function POST(
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })

@@ -19,6 +19,7 @@ import {
   Settings,
   ShieldCheck,
   Sun,
+  Tag,
   Ticket,
   Timer,
   UserCog,
@@ -114,6 +115,7 @@ export function MoreScreen() {
 
   const adminLinks = [
     { href: '/pricing', label: 'Bảng giá', description: 'Giá giờ chơi vãng lai', Icon: Banknote },
+    { href: '/promotions', label: 'Khuyến mại', description: 'Giảm giá giờ chơi vãng lai', Icon: Tag },
     { href: '/membership-plans', label: 'Gói hội viên', description: 'Phí tháng và thời hạn gói', Icon: Ticket },
     { href: '/staff', label: 'Nhân viên', description: 'Tài khoản và phân quyền', Icon: UserCog },
   ] as const

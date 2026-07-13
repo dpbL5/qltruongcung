@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { updateMembershipPlanSchema } from '@/lib/validations/membership'
 import { logActivity } from '@/lib/business/audit'
 
@@ -10,6 +11,7 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const { id } = await params
     const body = await request.json()
     const parsed = updateMembershipPlanSchema.safeParse(body)
@@ -65,6 +67,9 @@ export async function PUT(
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
+    }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })
     }
@@ -74,11 +79,12 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const { id } = await params
 
     const existing = await prisma.membershipPlan.findUnique({ where: { id } })
@@ -145,6 +151,9 @@ export async function DELETE(
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })

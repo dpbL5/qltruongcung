@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireMutationAuth } from '@/lib/auth'
 import { registerMemberSchema } from '@/lib/validations/membership'
 import { registerMember, mapRegisterMemberError } from '@/lib/business/use-cases/registerMember'
 
 export async function POST(request: NextRequest) {
   try {
-    const auth = await requireAuth()
+    const auth = await requireMutationAuth(request)
 
     const body = await request.json()
     const parsed = registerMemberSchema.safeParse(body)
@@ -44,8 +44,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: result }, { status: 201 })
   } catch (error) {
-    if ((error as Error).message === 'UNAUTHORIZED') {
+    const message = (error as Error).message
+    if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     console.error('POST /api/memberships/register error:', error)
     const mapped = mapRegisterMemberError(error as Error)

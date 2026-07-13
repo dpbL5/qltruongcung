@@ -32,6 +32,13 @@ enum DayType {
   WEEKEND
 }
 
+enum PromotionDiscountType {
+  FIXED_PER_HOUR
+  PERCENT_PLAY_TIME
+  FIXED_AMOUNT
+  PERCENT
+}
+
 enum PaymentMethod {
   CASH
   TRANSFER
@@ -124,26 +131,30 @@ model Customer {
 }
 
 model Session {
-  id             String        @id @default(uuid())
-  customerId     String        @map("customer_id")
-  customer       Customer      @relation(fields: [customerId], references: [id])
-  staffId        String        @map("staff_id")
-  staff          User          @relation(fields: [staffId], references: [id])
-  shiftId        String?       @map("shift_id")
-  shift          Shift?        @relation(fields: [shiftId], references: [id])
-  membershipId   String?       @map("membership_id")
-  membership     Membership?   @relation(fields: [membershipId], references: [id])
-  startTime      DateTime      @map("start_time")
-  endTime        DateTime?     @map("end_time")
-  status         SessionStatus @default(ACTIVE)
-  totalHours     Decimal?      @map("total_hours") @db.Decimal(5, 2)
-  hourlyRate     Decimal       @map("hourly_rate") @db.Decimal(10, 0)
-  subtotal       Decimal?      @db.Decimal(12, 0)
-  discountAmount Decimal       @default(0) @map("discount_amount") @db.Decimal(12, 0)
-  totalAmount    Decimal?      @map("total_amount") @db.Decimal(12, 0)
-  notes          String?       @db.Text
-  createdAt      DateTime      @default(now()) @map("created_at")
-  updatedAt      DateTime      @updatedAt @map("updated_at")
+  id                     String                 @id @default(uuid())
+  customerId             String                 @map("customer_id")
+  customer               Customer               @relation(fields: [customerId], references: [id])
+  staffId                String                 @map("staff_id")
+  staff                  User                   @relation(fields: [staffId], references: [id])
+  shiftId                String?                @map("shift_id")
+  shift                  Shift?                 @relation(fields: [shiftId], references: [id])
+  membershipId           String?                @map("membership_id")
+  membership             Membership?            @relation(fields: [membershipId], references: [id])
+  startTime              DateTime               @map("start_time")
+  endTime                DateTime?              @map("end_time")
+  status                 SessionStatus          @default(ACTIVE)
+  totalHours             Decimal?               @map("total_hours") @db.Decimal(5, 2)
+  hourlyRate             Decimal                @map("hourly_rate") @db.Decimal(10, 0)
+  promotionRuleId        String?                @map("promotion_rule_id")
+  promotionName          String?                @map("promotion_name") @db.VarChar(100)
+  promotionDiscountType  PromotionDiscountType? @map("promotion_discount_type")
+  promotionDiscountValue Decimal?               @map("promotion_discount_value") @db.Decimal(12, 2)
+  subtotal               Decimal?               @db.Decimal(12, 0)
+  discountAmount         Decimal                @default(0) @map("discount_amount") @db.Decimal(12, 0)
+  totalAmount            Decimal?               @map("total_amount") @db.Decimal(12, 0)
+  notes                  String?                @db.Text
+  createdAt              DateTime               @default(now()) @map("created_at")
+  updatedAt              DateTime               @updatedAt @map("updated_at")
 
   payment  Payment?
   invoices Invoice[]
@@ -151,24 +162,59 @@ model Session {
   @@index([customerId, status])
   @@index([shiftId])
   @@index([membershipId])
+  @@index([promotionRuleId])
   @@map("sessions")
 }
 
 model PricingRule {
-  id            String    @id @default(uuid())
-  name          String    @db.VarChar(100)
-  daysOfWeek    Int[]     @default([]) @map("days_of_week")
-  hourFrom      Int       @map("hour_from")
-  hourTo        Int?      @map("hour_to")
-  ratePerHour   Decimal   @map("rate_per_hour") @db.Decimal(12, 2)
-  dayType       DayType   @default(WEEKDAY) @map("day_type")
-  effectiveFrom DateTime  @map("effective_from")
-  effectiveTo   DateTime? @map("effective_to")
-  createdAt     DateTime  @default(now()) @map("created_at")
-  updatedAt     DateTime  @updatedAt @map("updated_at")
+  id            String        @id @default(uuid())
+  name          String        @db.VarChar(100)
+  daysOfWeek    Int[]         @default([]) @map("days_of_week")
+  hourFrom      Int           @map("hour_from")
+  hourTo        Int?          @map("hour_to")
+  ratePerHour   Decimal       @map("rate_per_hour") @db.Decimal(12, 2)
+  dayType       DayType       @default(WEEKDAY) @map("day_type")
+  effectiveFrom DateTime      @map("effective_from")
+  effectiveTo   DateTime?     @map("effective_to")
+  createdAt     DateTime      @default(now()) @map("created_at")
+  updatedAt     DateTime      @updatedAt @map("updated_at")
+
+  tiers         PricingTier[]
 
   @@index([dayType, hourFrom, hourTo])
   @@map("pricing_rules")
+}
+
+model PricingTier {
+  id          String      @id @default(uuid())
+  ruleId      String      @map("rule_id")
+  rule        PricingRule @relation(fields: [ruleId], references: [id], onDelete: Cascade)
+  minHours    Int         @map("min_hours")
+  ratePerHour Decimal     @map("rate_per_hour") @db.Decimal(12, 2)
+  createdAt   DateTime    @default(now()) @map("created_at")
+
+  @@unique([ruleId, minHours])
+  @@map("pricing_tiers")
+}
+
+model PromotionRule {
+  id            String                @id @default(uuid())
+  name          String                @db.VarChar(100)
+  discountType  PromotionDiscountType @map("discount_type")
+  discountValue Decimal               @map("discount_value") @db.Decimal(12, 2)
+  daysOfWeek    Int[]                 @default([]) @map("days_of_week")
+  hourFrom      Int                   @map("hour_from")
+  hourTo        Int?                  @map("hour_to")
+  dayType       DayType               @default(WEEKDAY) @map("day_type")
+  effectiveFrom DateTime              @map("effective_from")
+  effectiveTo   DateTime?             @map("effective_to")
+  isActive      Boolean               @default(true) @map("is_active")
+  createdAt     DateTime              @default(now()) @map("created_at")
+  updatedAt     DateTime              @updatedAt @map("updated_at")
+
+  @@index([isActive, dayType, hourFrom, hourTo])
+  @@index([effectiveFrom, effectiveTo])
+  @@map("promotion_rules")
 }
 
 model MembershipPlan {

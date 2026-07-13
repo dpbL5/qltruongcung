@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@/generated/prisma/client'
 import { requireAdmin, requireAuth } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { logActivity } from '@/lib/business/audit'
 import { prisma } from '@/lib/prisma'
 import { createProductSchema } from '@/lib/validations/product'
@@ -55,6 +56,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const body = await request.json()
     const parsed = createProductSchema.safeParse(body)
 
@@ -113,6 +115,9 @@ export async function POST(request: NextRequest) {
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })

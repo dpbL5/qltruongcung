@@ -37,6 +37,12 @@ export default async function RootLayout({
       suppressHydrationWarning
     >
       <head>
+        {/*
+          Theme anti-flicker script: chạy trước khi page render để tránh
+          flash sai theme. Script này là static, KHÔNG chứa user input.
+          Server cookie (qltrungcung_theme) xử lý theme cho lần load đầu;
+          script này fallback về localStorage/system preference.
+        */}
         <script
           dangerouslySetInnerHTML={{
             __html: `

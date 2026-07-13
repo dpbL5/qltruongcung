@@ -68,12 +68,12 @@ async function main() {
 
   console.log('Tạo tài khoản admin thành công:')
   console.log(`  username : ${admin.username}`)
-  console.log(`  password : ${ADMIN_PASSWORD}`)
   console.log(`  fullName : ${admin.fullName}`)
   console.log(`  role     : ${admin.role}`)
+  console.log('  password : ******** (đã hash)')
 
-  if (ADMIN_PASSWORD === 'admin123') {
-    console.warn('\n⚠️  Đang dùng mật khẩu mặc định. Hãy đổi ngay sau khi đăng nhập.')
+  if (ADMIN_PASSWORD === 'superuser@victoria2026') {
+    console.warn('\n⚠️  Đang dùng mật khẩu mặc định. Hãy cấu hình ADMIN_PASSWORD trong .env.')
   }
 }
 

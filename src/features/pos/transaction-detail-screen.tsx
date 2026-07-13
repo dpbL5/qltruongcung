@@ -5,7 +5,6 @@ import { useRouter } from 'next/navigation'
 import {
   ArrowLeft,
   Banknote,
-  CalendarClock,
   Clock,
   CreditCard,
   ReceiptText,
@@ -123,7 +122,8 @@ export function TransactionDetailScreen({ id }: Props) {
   }, [id])
 
   useEffect(() => {
-    void loadInvoice()
+    const timeoutId = window.setTimeout(() => void loadInvoice(), 0)
+    return () => window.clearTimeout(timeoutId)
   }, [loadInvoice])
 
   if (loading) {
@@ -260,6 +260,7 @@ export function TransactionDetailScreen({ id }: Props) {
             ) : (
               invoice.items.map((item) => {
                 const Icon = itemTypeIcons[item.type] ?? ReceiptText
+                const promotionName = getPromotionName(item.metadata)
                 return (
                   <div key={item.id} className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
                     <div className="min-w-0">
@@ -279,6 +280,11 @@ export function TransactionDetailScreen({ id }: Props) {
                         {item.discountAmount > 0 && (
                           <span className="text-red-500">
                             -{formatVND(item.discountAmount)}
+                          </span>
+                        )}
+                        {promotionName && (
+                          <span className="truncate text-emerald-600 dark:text-emerald-300">
+                            Khuyến mại: {promotionName}
                           </span>
                         )}
                       </div>
@@ -390,6 +396,21 @@ export function TransactionDetailScreen({ id }: Props) {
       </div>
     </div>
   )
+}
+
+function getPromotionName(metadata: unknown): string | null {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+
+  const record = metadata as Record<string, unknown>
+  const promotion = record.promotion
+  if (promotion && typeof promotion === 'object' && !Array.isArray(promotion)) {
+    const name = (promotion as Record<string, unknown>).name
+    if (typeof name === 'string' && name.trim()) return name
+  }
+
+  return typeof record.promotionName === 'string' && record.promotionName.trim()
+    ? record.promotionName
+    : null
 }
 
 function InvoiceDetailSkeleton() {

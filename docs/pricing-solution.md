@@ -5,7 +5,7 @@
 ## Quyết định thiết kế
 
 - **Loại bỏ `HOLIDAY`** khỏi `DayType` enum. Chỉ giữ `WEEKDAY` + `WEEKEND`. Ngày lễ được xử lý bằng cách tạo rule `WEEKEND` có `effectiveFrom→effectiveTo` bao phủ ngày lễ cụ thể.
-- **Loại bỏ `PromotionRule`** model + `PromotionType` enum. Đây là dead code chưa có API/UI/business logic. Khi có spec rõ ràng sẽ thiết kế lại từ đầu.
+- **Khuyến mại giờ chơi** được thiết kế riêng tại [`promotions-solution.md`](./promotions-solution.md) sau khi có đặc tả rõ ràng. Không gộp khuyến mại vào quy tắc bảng giá.
 - **Giữ `peakType` hardcode** trong `getPeakType()` — 3 khung giờ cao điểm (9-11, 14-16, 19-21) phù hợp với thực tế trường bắn, chưa cần cấu hình động.
 - **Sửa `ratePerHour`** → `Decimal(12,2)` để hỗ trợ giá lẻ.
 - **Thêm overlap detection** để cảnh báo admin khi tạo rule chồng lấn.
@@ -18,15 +18,15 @@
 ```
 1. DayType enum:     xoá HOLIDAY
 2. ratePerHour:      Decimal(10,0) → Decimal(12,2)
-3. PromotionRule:    xoá toàn bộ model
-4. PromotionType:    xoá toàn bộ enum
+3. PromotionRule:    xem promotions-solution.md
+4. PromotionDiscountType: xem promotions-solution.md
 ```
 
 ### Types (`src/types/index.ts`)
 
 ```
 1. DayType:          "WEEKDAY" | "WEEKEND"
-2. PromotionType:    xoá
+2. PromotionDiscountType: xem promotions-solution.md
 ```
 
 ### Validation (`src/lib/validations/pricing.ts`)

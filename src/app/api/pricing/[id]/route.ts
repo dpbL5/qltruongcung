@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { logActivity } from '@/lib/business/audit'
 import {
   deriveDayTypeFromDays,
@@ -17,6 +18,7 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const { id } = await params
     const body = await request.json()
     const parsed = updatePricingRuleSchema.safeParse(body)
@@ -72,11 +74,25 @@ export async function PUT(
       if (parsed.data.effectiveTo !== undefined) {
         data.effectiveTo = parsed.data.effectiveTo ? parseLocalDateEnd(parsed.data.effectiveTo) : null
       }
+      delete data.tiers
 
       const rule = await tx.pricingRule.update({
         where: { id },
         data,
       })
+
+      if (parsed.data.tiers !== undefined) {
+        await tx.pricingTier.deleteMany({ where: { ruleId: id } })
+        if (parsed.data.tiers.length > 0) {
+          await tx.pricingTier.createMany({
+            data: parsed.data.tiers.map((t) => ({
+              ruleId: id,
+              minHours: t.minHours,
+              ratePerHour: t.ratePerHour,
+            })),
+          })
+        }
+      }
 
       await logActivity(tx, {
         userId: auth.userId,
@@ -118,6 +134,9 @@ export async function PUT(
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
+    }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })
     }
@@ -127,11 +146,12 @@ export async function PUT(
 }
 
 export async function DELETE(
-  _request: NextRequest,
+  request: NextRequest,
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const { id } = await params
 
     const existing = await prisma.pricingRule.findUnique({ where: { id } })
@@ -166,6 +186,9 @@ export async function DELETE(
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })

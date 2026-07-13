@@ -23,12 +23,15 @@ export default function DashboardLayout({ children }: { children: React.ReactNod
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
 
   useEffect(() => {
-    try {
-      const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
-      if (stored === 'true') setSidebarCollapsed(true)
-    } catch {
-      // ignore
-    }
+    const timeoutId = window.setTimeout(() => {
+      try {
+        const stored = localStorage.getItem(SIDEBAR_COLLAPSED_KEY)
+        if (stored === 'true') setSidebarCollapsed(true)
+      } catch {
+        // ignore
+      }
+    }, 0)
+    return () => window.clearTimeout(timeoutId)
   }, [])
 
   useEffect(() => {

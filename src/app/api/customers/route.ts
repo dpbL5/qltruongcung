@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireMutationAuth } from '@/lib/auth'
 import { createCustomerSchema } from '@/lib/validations/customer'
 
 export async function GET(request: NextRequest) {
@@ -129,7 +129,7 @@ function clampPositiveInt(
 
 export async function POST(request: NextRequest) {
   try {
-    await requireAuth()
+    await requireMutationAuth(request)
 
     const body = await request.json()
     const parsed = createCustomerSchema.safeParse(body)
@@ -151,8 +151,12 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: customer }, { status: 201 })
   } catch (error) {
-    if ((error as Error).message === 'UNAUTHORIZED') {
+    const message = (error as Error).message
+    if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     console.error('POST /api/customers error:', error)
     return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 })

@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { requireAuth } from '@/lib/auth'
+import { requireAuth, requireMutationAuth } from '@/lib/auth'
 import { checkoutSessionSchema } from '@/lib/validations/session'
 import { checkOut, mapCheckoutError } from '@/lib/business/use-cases/checkOut'
 
@@ -8,7 +8,7 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    const auth = await requireAuth()
+    const auth = await requireMutationAuth(request)
     const { id } = await params
 
     const body = await request.json()
@@ -25,6 +25,7 @@ export async function POST(
       sessionId: id,
       staffId: auth.userId,
       paymentMethod: parsed.data.paymentMethod,
+      promotionRuleId: parsed.data.promotionRuleId ?? undefined,
       endTime: parsed.data.endTime ? new Date(parsed.data.endTime) : undefined,
       items: parsed.data.items,
       notes: parsed.data.notes,
@@ -35,6 +36,9 @@ export async function POST(
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     console.error('POST /api/sessions/[id]/checkout error:', error)
     const mapped = mapCheckoutError(error as Error)

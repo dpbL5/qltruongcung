@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdmin } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { logActivity } from '@/lib/business/audit'
 import { deriveDayTypeFromDays, findOverlappingRules, normalizeDaysOfWeek } from '@/lib/pricing'
 import { prisma } from '@/lib/prisma'
@@ -16,6 +17,9 @@ export async function GET() {
         { hourFrom: 'asc' },
         { effectiveFrom: 'desc' },
       ],
+      include: {
+        tiers: { orderBy: { minHours: 'asc' } },
+      },
     })
 
     return NextResponse.json({ success: true, data: rules })
@@ -35,6 +39,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     const auth = await requireAdmin()
+    await validateCSRF(request)
     const body = await request.json()
     const parsed = createPricingRuleSchema.safeParse(body)
 
@@ -72,6 +77,16 @@ export async function POST(request: NextRequest) {
         },
       })
 
+      if (parsed.data.tiers && parsed.data.tiers.length > 0) {
+        await tx.pricingTier.createMany({
+          data: parsed.data.tiers.map((t) => ({
+            ruleId: created.id,
+            minHours: t.minHours,
+            ratePerHour: t.ratePerHour,
+          })),
+        })
+      }
+
       await logActivity(tx, {
         userId: auth.userId,
         action: 'PRICING_RULE_CREATE',
@@ -102,6 +117,9 @@ export async function POST(request: NextRequest) {
     const message = (error as Error).message
     if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
     }
     if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })

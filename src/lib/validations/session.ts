@@ -7,6 +7,7 @@ export const createSessionSchema = z.object({
 
 export const checkoutSessionSchema = z.object({
   paymentMethod: z.enum(["CASH", "TRANSFER", "CARD"]),
+  promotionRuleId: z.string().uuid("ID khuyến mại không hợp lệ").nullable().optional(),
   endTime: z.string().datetime().optional(),
   notes: z.string().max(500).optional(),
   items: z.array(z.object({

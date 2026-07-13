@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin, requireAuth } from '@/lib/auth'
+import { validateCSRF } from '@/lib/csrf'
 import { createMembershipPlanSchema } from '@/lib/validations/membership'
 
 export async function GET() {
@@ -24,6 +25,7 @@ export async function GET() {
 export async function POST(request: NextRequest) {
   try {
     await requireAdmin()
+    await validateCSRF(request)
 
     const body = await request.json()
     const parsed = createMembershipPlanSchema.safeParse(body)
@@ -41,10 +43,14 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ success: true, data: plan }, { status: 201 })
   } catch (error) {
-    if ((error as Error).message === 'UNAUTHORIZED') {
+    const message = (error as Error).message
+    if (message === 'UNAUTHORIZED') {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
-    if ((error as Error).message === 'FORBIDDEN') {
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 })
+    }
+    if (message === 'FORBIDDEN') {
       return NextResponse.json({ success: false, error: 'Không có quyền' }, { status: 403 })
     }
     console.error('POST /api/membership-plans error:', error)

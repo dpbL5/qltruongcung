@@ -13,33 +13,30 @@ const daysOfWeekSchema = z
     }
   })
 
-const pricingTierSchema = z.object({
-  minHours: z.number().int().min(1, 'Số giờ tối thiểu phải từ 1'),
-  ratePerHour: z.number().positive('Giá theo giờ phải lớn hơn 0'),
-})
-
-const basePricingRuleSchema = z.object({
-  name: z.string().min(1, 'Tên quy tắc không được để trống').max(100),
+const basePromotionRuleSchema = z.object({
+  name: z.string().trim().min(1, 'Tên khuyến mại không được để trống').max(100),
+  discountType: z.enum(['FIXED_AMOUNT', 'PERCENT', 'FIXED_PER_HOUR', 'PERCENT_PLAY_TIME']),
+  discountValue: z.number().positive('Giá trị giảm phải lớn hơn 0'),
   daysOfWeek: daysOfWeekSchema,
   hourFrom: z.number().int().min(0, 'Giờ bắt đầu phải từ 0-23').max(23, 'Giờ bắt đầu phải từ 0-23'),
   hourTo: z.number().int().min(1, 'Giờ kết thúc phải từ 1-24').max(24, 'Giờ kết thúc phải từ 1-24').nullable().optional(),
-  ratePerHour: z.number().positive('Giá theo giờ phải lớn hơn 0'),
-  dayType: z.enum(['WEEKDAY', 'WEEKEND']).optional(),
   effectiveFrom: z.string().min(1, 'Ngày hiệu lực không được để trống'),
   effectiveTo: z.string().nullable().optional(),
-  tiers: z.array(pricingTierSchema).optional(),
+  isActive: z.boolean().optional(),
 })
 
-export const createPricingRuleSchema = basePricingRuleSchema.superRefine((value, ctx) => {
-  validatePricingRange(value, ctx)
+export const createPromotionRuleSchema = basePromotionRuleSchema.superRefine((value, ctx) => {
+  validatePromotionRule(value, ctx)
 })
 
-export const updatePricingRuleSchema = basePricingRuleSchema.partial().superRefine((value, ctx) => {
-  validatePricingRange(value, ctx)
+export const updatePromotionRuleSchema = basePromotionRuleSchema.partial().superRefine((value, ctx) => {
+  validatePromotionRule(value, ctx)
 })
 
-function validatePricingRange(
+function validatePromotionRule(
   value: {
+    discountType?: 'FIXED_AMOUNT' | 'PERCENT' | 'FIXED_PER_HOUR' | 'PERCENT_PLAY_TIME'
+    discountValue?: number
     hourFrom?: number
     hourTo?: number | null
     effectiveFrom?: string
@@ -47,6 +44,18 @@ function validatePricingRange(
   },
   ctx: z.RefinementCtx
 ) {
+  if (
+    (value.discountType === 'PERCENT' || value.discountType === 'PERCENT_PLAY_TIME')
+    && value.discountValue !== undefined
+    && value.discountValue > 100
+  ) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['discountValue'],
+      message: 'Phần trăm giảm không được vượt quá 100%',
+    })
+  }
+
   if (
     value.hourFrom !== undefined
     && value.hourTo !== undefined
@@ -73,5 +82,5 @@ function validatePricingRange(
   }
 }
 
-export type CreatePricingRuleInput = z.infer<typeof createPricingRuleSchema>
-export type UpdatePricingRuleInput = z.infer<typeof updatePricingRuleSchema>
+export type CreatePromotionRuleInput = z.infer<typeof createPromotionRuleSchema>
+export type UpdatePromotionRuleInput = z.infer<typeof updatePromotionRuleSchema>

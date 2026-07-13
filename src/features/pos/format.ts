@@ -1,4 +1,5 @@
 import { formatVND } from '@/lib/utils'
+import { calculatePlayPrice, type PromotionSnapshot } from '@/lib/promotion-calculation'
 
 export function toNumber(value: number | string | null | undefined): number {
   return Number(value ?? 0)
@@ -35,12 +36,20 @@ export function calcElapsedHMS(startTime: string): string {
   return [h, m, s].map((v) => v.toString().padStart(2, '0')).join(':')
 }
 
-export function calcCurrentPlayCost(startTime: string, hourlyRate: number | string): number {
+export function calcCurrentPlayCost(
+  startTime: string,
+  hourlyRate: number | string,
+  promotion?: PromotionSnapshot | null,
+): number {
   const diffMs = Date.now() - new Date(startTime).getTime()
   if (diffMs < 0) return 0
 
   const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
-  return Math.round(totalHours * toNumber(hourlyRate))
+  return calculatePlayPrice({
+    totalHours,
+    hourlyRate: toNumber(hourlyRate),
+    promotion,
+  }).grandTotal
 }
 
 export function paymentMethodLabel(method: string): string {

@@ -2,6 +2,11 @@ import { NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
 import { requireAdmin } from '@/lib/auth'
 import bcrypt from 'bcryptjs'
+import { randomBytes } from 'crypto'
+
+function generatePassword(): string {
+  return randomBytes(8).toString('hex') // 16-char random hex
+}
 
 export async function POST() {
   // Chỉ admin mới được seed
@@ -16,7 +21,10 @@ export async function POST() {
   }
 
   try {
-    const adminHash = await bcrypt.hash('admin123', 12)
+    const adminPassword = process.env.SEED_ADMIN_PASSWORD || generatePassword()
+    const staffPassword = process.env.SEED_STAFF_PASSWORD || generatePassword()
+
+    const adminHash = await bcrypt.hash(adminPassword, 12)
     const admin = await prisma.user.upsert({
       where: { username: 'admin' },
       update: {},
@@ -28,7 +36,7 @@ export async function POST() {
       },
     })
 
-    const staffHash = await bcrypt.hash('staff123', 12)
+    const staffHash = await bcrypt.hash(staffPassword, 12)
     await prisma.user.upsert({
       where: { username: 'staff' },
       update: {},
@@ -194,10 +202,10 @@ export async function POST() {
 
     return NextResponse.json({
       success: true,
-      message: 'Seed hoàn tất!',
+      message: 'Seed hoàn tất! Lưu lại mật khẩu — chúng sẽ không hiển thị lại.',
       accounts: [
-        { role: 'Admin', username: 'admin' },
-        { role: 'Staff', username: 'staff' },
+        { role: 'Admin', username: 'admin', password: adminPassword },
+        { role: 'Staff', username: 'staff', password: staffPassword },
       ],
       counts: {
         customers: [walkInA, memberB, memberC, expiredMemberD, walkInE].length,

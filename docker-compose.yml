@@ -3,9 +3,9 @@ services:
     image: postgres:16-alpine
     container_name: qltruongcung-db
     environment:
-      POSTGRES_USER: posadmin
-      POSTGRES_PASSWORD: posadmin123
-      POSTGRES_DB: qltruongcung
+      POSTGRES_USER: ${POSTGRES_USER:-posadmin}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me-in-production}
+      POSTGRES_DB: ${POSTGRES_DB:-qltruongcung}
     ports:
       - "5432:5432"
     volumes:

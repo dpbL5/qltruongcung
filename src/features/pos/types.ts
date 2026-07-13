@@ -1,3 +1,5 @@
+import type { PromotionDiscountType } from '@/types'
+
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'CARD'
 export type CustomerType = 'WALK_IN' | 'MEMBER'
 export type ProductType = 'PRODUCT' | 'SERVICE'
@@ -33,6 +35,10 @@ export interface SessionRow {
   subtotal?: number | string | null
   discountAmount?: number | string | null
   totalAmount?: number | string | null
+  promotionRuleId?: string | null
+  promotionName?: string | null
+  promotionDiscountType?: PromotionDiscountType | null
+  promotionDiscountValue?: number | string | null
   customer: Customer
   staff: { id: string; fullName: string }
   membership?: { id: string; startsAt: string; expiresAt: string } | null

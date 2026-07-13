@@ -659,9 +659,14 @@ function ShiftsSkeleton() {
 }
 
 function jsonRequest(method: 'POST' | 'DELETE', body: unknown): RequestInit {
+  const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+  const csrfToken = typeof document !== 'undefined'
+    ? document.cookie.match(/(?:^|;\s*)qltrungcung_csrf=([^;]*)/)?.[1]
+    : null
+  if (csrfToken) headers['X-CSRF-Token'] = decodeURIComponent(csrfToken)
   return {
     method,
-    headers: { 'Content-Type': 'application/json' },
+    headers,
     body: JSON.stringify(body),
   }
 }

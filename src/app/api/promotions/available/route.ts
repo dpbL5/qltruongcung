@@ -1,0 +1,19 @@
+import { NextResponse } from 'next/server'
+import { requireAuth } from '@/lib/auth'
+import { findAvailablePromotions } from '@/lib/business/promotions'
+
+export async function GET() {
+  try {
+    await requireAuth()
+    const promotions = await findAvailablePromotions()
+
+    return NextResponse.json({ success: true, data: promotions })
+  } catch (error) {
+    if ((error as Error).message === 'UNAUTHORIZED') {
+      return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
+    }
+
+    console.error('GET /api/promotions/available error:', error)
+    return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 })
+  }
+}

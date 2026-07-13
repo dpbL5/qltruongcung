@@ -1,7 +1,7 @@
 // ── GET/PUT /api/customers/[id] ──────────────────────────
 import { NextRequest, NextResponse } from "next/server";
 import { prisma } from "@/lib/prisma";
-import { requireAuth } from "@/lib/auth";
+import { requireAuth, requireMutationAuth } from "@/lib/auth";
 import { updateCustomerSchema } from "@/lib/validations/customer";
 
 // ── GET: Chi tiết khách hàng ───────────────────────────
@@ -52,7 +52,7 @@ export async function PUT(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    await requireAuth();
+    await requireMutationAuth(request);
     const { id } = await params;
 
     const existing = await prisma.customer.findUnique({ where: { id } });
@@ -95,10 +95,14 @@ export async function PUT(
 
     return NextResponse.json({ success: true, data: customer });
   } catch (error) {
-    if ((error as Error).message === "UNAUTHORIZED") {
-      return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
+    const message = (error as Error).message
+    if (message === 'UNAUTHORIZED') {
+      return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 });
     }
-    console.error("PUT /api/customers/[id] error:", error);
-    return NextResponse.json({ success: false, error: "Lỗi máy chủ" }, { status: 500 });
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 });
+    }
+    console.error('PUT /api/customers/[id] error:', error);
+    return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 });
   }
 }
