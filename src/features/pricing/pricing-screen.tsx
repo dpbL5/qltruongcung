@@ -41,6 +41,12 @@ interface PricingRule {
   effectiveFrom: string
   effectiveTo: string | null
   createdAt: string
+  tiers?: { id: string; ruleId: string; minHours: number; ratePerHour: number | string }[]
+}
+
+interface PricingTierFormState {
+  minHours: string
+  ratePerHour: string
 }
 
 interface PricingFormState {
@@ -51,6 +57,7 @@ interface PricingFormState {
   ratePerHour: string
   effectiveFrom: string
   effectiveTo: string
+  tiers: PricingTierFormState[]
 }
 
 const weekDays = [
@@ -75,6 +82,7 @@ const emptyForm: PricingFormState = {
   ratePerHour: '150000',
   effectiveFrom: toInputDate(new Date()),
   effectiveTo: '',
+  tiers: [],
 }
 
 export function PricingScreen() {
@@ -412,6 +420,24 @@ function PricingRuleCard({
         <MiniInfo Icon={CalendarDays} label="Hiệu lực" value={formatEffectiveRange(rule)} />
       </div>
 
+      {rule.tiers && rule.tiers.length > 0 && (
+        <div className="mt-3 rounded-lg bg-zinc-50 p-3 dark:bg-zinc-950">
+          <p className="text-[11px] font-medium text-zinc-500 dark:text-zinc-400">Giá luỹ tiến theo giờ chơi</p>
+          <div className="mt-1 space-y-1">
+            <p className="text-xs text-zinc-700 dark:text-zinc-300">&lt;{rule.tiers[0]!.minHours}h: <span className="font-semibold tabular-nums">{money(rule.ratePerHour)}</span>/giờ</p>
+            {rule.tiers.map((tier, idx) => {
+              const nextMin = rule.tiers![idx + 1]?.minHours
+              const range = nextMin ? `${tier.minHours}-${nextMin}h` : `≥${tier.minHours}h`
+              return (
+                <p key={tier.id} className="text-xs text-zinc-700 dark:text-zinc-300">
+                  {range}: <span className="font-semibold tabular-nums">{money(tier.ratePerHour)}</span>/giờ
+                </p>
+              )
+            })}
+          </div>
+        </div>
+      )}
+
       <div className="mt-3 flex gap-2">
         <Button variant="secondary" size="sm" icon={Edit3} onClick={onEdit}>
           Sửa
@@ -475,6 +501,10 @@ function PricingRuleDialog({
         ratePerHour: String(Number(rule.ratePerHour)),
         effectiveFrom: toDateInputValue(rule.effectiveFrom),
         effectiveTo: toDateInputValue(rule.effectiveTo),
+        tiers: (rule.tiers ?? []).map((t) => ({
+          minHours: String(t.minHours),
+          ratePerHour: String(Number(t.ratePerHour)),
+        })),
       })
       /* eslint-enable react-hooks/set-state-in-effect */
       return
@@ -622,6 +652,81 @@ function PricingForm({
             onChange={(event) => setForm({ ...form, effectiveTo: event.target.value })}
           />
         </div>
+      </div>
+
+      <div>
+        <div className="flex items-center justify-between">
+          <Label>Giá theo giờ chơi (tuỳ chọn)</Label>
+          <Button
+            variant="secondary"
+            size="xs"
+            onClick={() => setForm({
+              ...form,
+              tiers: [...(form.tiers ?? []), { minHours: '2', ratePerHour: String(Math.round(Number(form.ratePerHour) * 0.7)) }],
+            })}
+          >
+            + Thêm mức giá
+          </Button>
+        </div>
+        <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+          Giá áp dụng luỹ tiến theo giờ chơi. Giá cơ bản cho giờ đầu, các mức tiếp theo cho giờ sau khi đạt mốc.
+        </p>
+
+        {(form.tiers ?? []).length > 0 && (
+          <div className="mt-2 space-y-2">
+            {form.tiers.map((tier, idx) => (
+              <div key={idx} className="flex items-end gap-2 rounded-lg border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-700 dark:bg-zinc-900">
+                <div className="flex-1">
+                  <Label>Chơi từ</Label>
+                  <div className="relative">
+                    <Input
+                      type="number"
+                      min="1"
+                      step="1"
+                      inputMode="numeric"
+                      value={tier.minHours}
+                      onChange={(event) => {
+                        const newTiers = [...(form.tiers ?? [])]
+                        newTiers[idx] = { ...newTiers[idx]!, minHours: event.target.value }
+                        setForm({ ...form, tiers: newTiers })
+                      }}
+                    />
+                    <span className="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                      giờ
+                    </span>
+                  </div>
+                </div>
+                <div className="flex-[2]">
+                  <Label>Giá/giờ</Label>
+                  <Input
+                    type="number"
+                    min="1000"
+                    step="1000"
+                    inputMode="numeric"
+                    value={tier.ratePerHour}
+                    onChange={(event) => {
+                      const newTiers = [...(form.tiers ?? [])]
+                      newTiers[idx] = { ...newTiers[idx]!, ratePerHour: event.target.value }
+                      setForm({ ...form, tiers: newTiers })
+                    }}
+                  />
+                </div>
+                <Button
+                  variant="secondary"
+                  size="xs"
+                  onClick={() => {
+                    const newTiers = [...(form.tiers ?? [])]
+                    newTiers.splice(idx, 1)
+                    setForm({ ...form, tiers: newTiers })
+                  }}
+                  title="Xoá mức giá này"
+                >
+                  ✕
+                </Button>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="rounded-xl border border-blue-200 bg-blue-50 p-3 text-xs text-blue-700 dark:border-blue-500/20 dark:bg-blue-500/10 dark:text-blue-300">
@@ -810,6 +915,28 @@ function buildPricingPayload(form: PricingFormState):
     return { error: 'Ngày hết hiệu lực phải sau ngày bắt đầu' }
   }
 
+  const tiers = (form.tiers ?? [])
+    .filter((t) => t.minHours.trim() && t.ratePerHour.trim())
+    .map((t) => {
+      const minHours = Number(t.minHours)
+      const tRate = Number(t.ratePerHour)
+      return { minHours, ratePerHour: tRate }
+    })
+
+  const uniqueMinHours = new Set(tiers.map((t) => t.minHours))
+  if (uniqueMinHours.size !== tiers.length) {
+    return { error: 'Số giờ tối thiểu trong các mức giá không được trùng nhau' }
+  }
+
+  for (const t of tiers) {
+    if (!Number.isInteger(t.minHours) || t.minHours < 1) {
+      return { error: 'Số giờ tối thiểu cho mức giá phải từ 1' }
+    }
+    if (!Number.isFinite(t.ratePerHour) || t.ratePerHour <= 0) {
+      return { error: 'Giá theo giờ cho mức giá phải lớn hơn 0' }
+    }
+  }
+
   return {
     data: {
       name,
@@ -820,6 +947,7 @@ function buildPricingPayload(form: PricingFormState):
       dayType: deriveDayType(daysOfWeek),
       effectiveFrom: form.effectiveFrom,
       effectiveTo: form.effectiveTo || null,
+      tiers,
     },
   }
 }

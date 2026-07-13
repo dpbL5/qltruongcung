@@ -1,4 +1,8 @@
 import { findActiveMembership } from '@/lib/business/memberships'
+import {
+  calculatePromotionDiscount,
+  type PromotionSnapshot,
+} from '@/lib/promotion-calculation'
 import { prisma } from '@/lib/prisma'
 import { calcHours, getDayType, getVnDay, getVnHour } from '@/lib/utils'
 import type { DayType } from '@/types'
@@ -7,10 +11,10 @@ export interface PricingResult {
   hourlyRate: number
   totalHours: number
   subtotal: number
-  typeDiscount: number
-  volumeDiscount: number
+  promotionDiscount: number
   grandTotal: number
   isMemberSession: boolean
+  promotion: PromotionSnapshot | null
 }
 
 export async function findApplicableRate(
@@ -108,7 +112,8 @@ export function resolveRuleDaysOfWeek(daysOfWeek: number[] | null | undefined, d
 
 export async function calculateSessionPrice(
   sessionId: string,
-  endTime: Date
+  endTime: Date,
+  promotion: PromotionSnapshot | null = null
 ): Promise<PricingResult> {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
@@ -132,33 +137,108 @@ export async function calculateSessionPrice(
       hourlyRate: 0,
       totalHours,
       subtotal: 0,
-      typeDiscount: 0,
-      volumeDiscount: 0,
+      promotionDiscount: 0,
       grandTotal: 0,
       isMemberSession: true,
+      promotion: null,
     }
   }
 
   const currentHour = getVnHour(session.startTime)
-  const hourlyRate =
-    Number(session.hourlyRate)
-    || await findApplicableRate(
-      currentHour,
-      getDayType(session.startTime),
-      session.startTime
-    )
+  const dayType = getDayType(session.startTime)
 
-  const subtotal = Math.round(totalHours * hourlyRate)
+  const applicableRule = await findApplicablePricingRule(currentHour, dayType, session.startTime)
+
+  let hourlyRate: number
+  let tiers: { minHours: number; ratePerHour: number }[] = []
+
+  if (applicableRule) {
+    hourlyRate = Number(applicableRule.ratePerHour)
+    tiers = await fetchPricingTiers(applicableRule.id)
+  } else {
+    hourlyRate = Number(session.hourlyRate)
+    if (!hourlyRate) {
+      hourlyRate = await findApplicableRate(currentHour, dayType, session.startTime)
+    }
+  }
+
+  // Tính tiền luỹ tiến theo các mức giá: mỗi phân khúc giờ dùng mức giá riêng
+  const progressiveSubtotal = calculateTieredSubtotal(hourlyRate, tiers, totalHours)
+
+  // Promotion discount tính trên progressive subtotal
+  const promotionDiscount = promotion
+    ? calculatePromotionDiscount({ totalHours, subtotal: progressiveSubtotal, promotion })
+    : 0
+
+  const grandTotal = Math.max(0, progressiveSubtotal - promotionDiscount)
 
   return {
     hourlyRate,
     totalHours,
-    subtotal,
-    typeDiscount: 0,
-    volumeDiscount: 0,
-    grandTotal: Math.max(0, subtotal),
+    subtotal: progressiveSubtotal,
+    promotionDiscount,
+    grandTotal,
     isMemberSession: false,
+    promotion,
   }
+}
+
+/**
+ * Lấy danh sách các mức giá luỹ tiến của một quy tắc giá,
+ * sắp xếp tăng dần theo minHours.
+ */
+async function fetchPricingTiers(
+  ruleId: string
+): Promise<{ minHours: number; ratePerHour: number }[]> {
+  const tiers = await prisma.pricingTier.findMany({
+    where: { ruleId },
+    orderBy: { minHours: 'asc' },
+  })
+  return tiers.map((t) => ({
+    minHours: t.minHours,
+    ratePerHour: Number(t.ratePerHour),
+  }))
+}
+
+/**
+ * Tính tiền giờ chơi theo mô hình luỹ tiến:
+ * - Từ giờ 0 đến tier[0].minHours: dùng baseRate
+ * - Từ tier[0].minHours đến tier[1].minHours: dùng tier[0].ratePerHour
+ * - ...
+ * - Từ tier cuối đến hết: dùng tier cuối.ratePerHour
+ *
+ * Ví dụ: baseRate = 100k, tier[0] = { minHours: 1, ratePerHour: 60k }, chơi 4h
+ *   → 1h × 100k + 3h × 60k = 280k
+ */
+export function calculateTieredSubtotal(
+  baseRate: number,
+  tiers: { minHours: number; ratePerHour: number }[],
+  totalHours: number
+): number {
+  if (totalHours <= 0 || (tiers.length === 0 && baseRate <= 0)) return 0
+
+  let remainingHours = totalHours
+  let subtotal = 0
+  let currentRate = baseRate
+  let segmentStart = 0
+
+  for (const tier of tiers) {
+    const segmentEnd = tier.minHours
+    const segmentHours = Math.max(0, Math.min(remainingHours, segmentEnd - segmentStart))
+    subtotal += Math.round(segmentHours * currentRate)
+    remainingHours -= segmentHours
+    currentRate = tier.ratePerHour
+    segmentStart = segmentEnd
+
+    if (remainingHours <= 0) break
+  }
+
+  // Số giờ còn lại dùng mức giá của tier cuối cùng
+  if (remainingHours > 0) {
+    subtotal += Math.round(remainingHours * currentRate)
+  }
+
+  return subtotal
 }
 
 async function findApplicablePricingRule(

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { Prisma } from "@/generated/prisma/client";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
+import { validateCSRF } from "@/lib/csrf";
 import { logActivity } from "@/lib/business/audit";
 import { resetPasswordSchema, updateUserSchema } from "@/lib/validations/auth";
 import bcrypt from "bcryptjs";
@@ -13,6 +14,7 @@ export async function PUT(
 ) {
   try {
     const auth = await requireAdmin();
+    await validateCSRF(request);
     const { id } = await params;
 
     const body = await request.json();
@@ -32,6 +34,28 @@ export async function PUT(
         { success: false, error: "Không tìm thấy người dùng" },
         { status: 404 }
       );
+    }
+
+    // Chặn vô hiệu hoá nhân viên đang tham gia ca mở
+    if (parsed.data.isActive === false) {
+      const activeParticipants = await prisma.shiftParticipant.findMany({
+        where: {
+          staffId: id,
+          leftAt: null,
+          shift: { status: 'OPEN' },
+        },
+        select: { shiftId: true },
+      });
+
+      if (activeParticipants.length > 0) {
+        return NextResponse.json(
+          {
+            success: false,
+            error: `Không thể vô hiệu hoá nhân viên đang trong ca làm. Vui lòng đưa nhân viên rời ca trước khi khoá tài khoản.`,
+          },
+          { status: 409 }
+        );
+      }
     }
 
     const user = await prisma.$transaction(async (tx) => {
@@ -66,10 +90,14 @@ export async function PUT(
 
     return NextResponse.json({ success: true, data: user });
   } catch (error) {
-    if ((error as Error).message === "UNAUTHORIZED") {
+    const message = (error as Error).message
+    if (message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
-    if ((error as Error).message === "FORBIDDEN") {
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 });
+    }
+    if (message === "FORBIDDEN") {
       return NextResponse.json({ success: false, error: "Không có quyền" }, { status: 403 });
     }
     if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2025") {
@@ -90,6 +118,7 @@ export async function PATCH(
 ) {
   try {
     const auth = await requireAdmin();
+    await validateCSRF(request);
     const { id } = await params;
 
     const body = await request.json();
@@ -129,10 +158,14 @@ export async function PATCH(
 
     return NextResponse.json({ success: true, message: "Đã đổi mật khẩu" });
   } catch (error) {
-    if ((error as Error).message === "UNAUTHORIZED") {
+    const message = (error as Error).message
+    if (message === "UNAUTHORIZED") {
       return NextResponse.json({ success: false, error: "Chưa đăng nhập" }, { status: 401 });
     }
-    if ((error as Error).message === "FORBIDDEN") {
+    if (message === 'CSRF_MISMATCH') {
+      return NextResponse.json({ success: false, error: 'Yêu cầu không hợp lệ (CSRF)' }, { status: 403 });
+    }
+    if (message === "FORBIDDEN") {
       return NextResponse.json({ success: false, error: "Không có quyền" }, { status: 403 });
     }
     console.error("PATCH /api/users/[id] error:", error);

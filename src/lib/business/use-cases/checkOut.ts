@@ -1,7 +1,17 @@
 import { logActivity } from '@/lib/business/audit'
 import { findActiveMembership } from '@/lib/business/memberships'
+import {
+  findAvailablePromotionById,
+  promotionRuleWhere,
+  toPromotionSnapshot,
+} from '@/lib/business/promotions'
 import { findOpenShiftForStaff } from '@/lib/business/shifts'
 import { prisma } from '@/lib/prisma'
+import {
+  calculatePlayPrice,
+  toPromotionMetadata,
+  type PromotionSnapshot,
+} from '@/lib/promotion-calculation'
 import { calculateSessionPrice } from '@/lib/pricing'
 import { generateInvoiceNo } from '@/lib/business/invoices'
 import type { PaymentMethod } from '@/types'
@@ -15,6 +25,7 @@ export interface CheckoutInput {
   sessionId: string
   staffId: string
   paymentMethod: PaymentMethod
+  promotionRuleId?: string
   endTime?: Date
   items: CheckoutLineInput[]
   notes?: string
@@ -32,10 +43,10 @@ export interface CheckoutResult {
   subtotal: number
   playSubtotal: number
   productSubtotal: number
-  typeDiscount: number
-  volumeDiscount: number
+  promotionDiscount: number
   grandTotal: number
   isMemberSession: boolean
+  promotion: PromotionSnapshot | null
   paymentMethod: PaymentMethod
   paymentId: string
 }
@@ -53,6 +64,7 @@ export async function checkOut({
   sessionId,
   staffId,
   paymentMethod,
+  promotionRuleId,
   endTime = new Date(),
   items,
   notes,
@@ -72,9 +84,23 @@ export async function checkOut({
     throw new Error('END_TIME_BEFORE_START')
   }
 
-  const pricing = await calculateSessionPrice(sessionId, endTime)
-  const playDiscountTotal = pricing.typeDiscount + pricing.volumeDiscount
-  const playTotal = Math.max(0, pricing.grandTotal)
+  const checkoutAt = new Date()
+  const selectedPromotion = promotionRuleId
+    ? await findAvailablePromotionById(promotionRuleId, checkoutAt)
+    : null
+
+  if (promotionRuleId && !selectedPromotion) {
+    throw new Error('PROMOTION_UNAVAILABLE')
+  }
+
+  const pricing = await calculateSessionPrice(sessionId, endTime, selectedPromotion)
+  if (pricing.isMemberSession && promotionRuleId) {
+    throw new Error('PROMOTION_NOT_APPLICABLE')
+  }
+
+  let finalPricing = pricing
+  let playDiscountTotal = pricing.promotionDiscount
+  let playTotal = Math.max(0, pricing.grandTotal)
 
   const quantityByProductId = new Map<string, number>()
   for (const item of items) {
@@ -118,9 +144,9 @@ export async function checkOut({
   })
 
   const productSubtotal = checkoutLines.reduce((sum, line) => sum + line.subtotal, 0)
-  const invoiceSubtotal = pricing.subtotal + productSubtotal
-  const invoiceGrandTotal = playTotal + productSubtotal
-  const paidAt = new Date()
+  let invoiceSubtotal = pricing.subtotal + productSubtotal
+  let invoiceGrandTotal = playTotal + productSubtotal
+  const paidAt = checkoutAt
 
   const result = await prisma.$transaction(async (tx) => {
     // ── Kiểm tra ca làm trong transaction để tránh TOCTOU race ──
@@ -142,6 +168,40 @@ export async function checkOut({
       }
     }
 
+    const promotionRule = promotionRuleId
+      ? await tx.promotionRule.findFirst({
+          where: {
+            id: promotionRuleId,
+            ...promotionRuleWhere(checkoutAt),
+          },
+        })
+      : null
+
+    if (promotionRuleId && !promotionRule) {
+      throw new Error('PROMOTION_UNAVAILABLE')
+    }
+
+    const promotion = promotionRule ? toPromotionSnapshot(promotionRule) : null
+    // Dùng subtotal luỹ tiến đã tính từ calculateSessionPrice,
+    // chỉ áp lại promotion discount trong transaction để đảm bảo khuyến mại còn hiệu lực.
+    const playPrice = calculatePlayPrice({
+      totalHours: pricing.totalHours,
+      hourlyRate: pricing.hourlyRate,
+      promotion,
+      subtotal: pricing.subtotal,
+    })
+    finalPricing = {
+      ...pricing,
+      subtotal: playPrice.subtotal,
+      promotionDiscount: playPrice.promotionDiscount,
+      grandTotal: playPrice.grandTotal,
+      promotion,
+    }
+    playDiscountTotal = finalPricing.promotionDiscount
+    playTotal = Math.max(0, finalPricing.grandTotal)
+    invoiceSubtotal = finalPricing.subtotal + productSubtotal
+    invoiceGrandTotal = playTotal + productSubtotal
+
     const invoice = await tx.invoice.create({
       data: {
         invoiceNo: generateInvoiceNo(),
@@ -162,19 +222,22 @@ export async function checkOut({
       data: {
         invoiceId: invoice.id,
         type: 'PLAY_TIME',
-        description: pricing.isMemberSession
+        description: finalPricing.isMemberSession
           ? 'Giờ chơi hội viên'
           : 'Giờ chơi khách vãng lai',
-        quantity: pricing.totalHours,
-        unitPrice: pricing.hourlyRate,
-        subtotal: pricing.subtotal,
+        quantity: finalPricing.totalHours,
+        unitPrice: finalPricing.hourlyRate,
+        subtotal: finalPricing.subtotal,
         discountAmount: playDiscountTotal,
         total: playTotal,
         metadata: {
           sessionId,
           customerType: session.customer.type,
           membershipId: session.membershipId,
-          isMemberSession: pricing.isMemberSession,
+          isMemberSession: finalPricing.isMemberSession,
+          promotion: toPromotionMetadata(finalPricing.promotion),
+          playSubtotal: finalPricing.subtotal,
+          playTotal,
         },
       },
     })
@@ -247,7 +310,7 @@ export async function checkOut({
         invoiceId: invoice.id,
         shiftId,
         staffId,
-        totalHours: pricing.totalHours,
+        totalHours: finalPricing.totalHours,
         subtotal: invoiceSubtotal,
         discountTotal: playDiscountTotal,
         grandTotal: invoiceGrandTotal,
@@ -263,8 +326,12 @@ export async function checkOut({
         shiftId,
         endTime,
         status: 'COMPLETED',
-        totalHours: pricing.totalHours,
-        subtotal: pricing.subtotal,
+        totalHours: finalPricing.totalHours,
+        subtotal: finalPricing.subtotal,
+        promotionRuleId: finalPricing.promotion?.ruleId,
+        promotionName: finalPricing.promotion?.name,
+        promotionDiscountType: finalPricing.promotion?.discountType,
+        promotionDiscountValue: finalPricing.promotion?.discountValue,
         discountAmount: playDiscountTotal,
         totalAmount: invoiceGrandTotal,
       },
@@ -273,7 +340,7 @@ export async function checkOut({
     await tx.customer.update({
       where: { id: session.customerId },
       data: {
-        totalHoursPlayed: { increment: pricing.totalHours },
+        totalHoursPlayed: { increment: finalPricing.totalHours },
         totalSpent: { increment: invoiceGrandTotal },
       },
     })
@@ -289,7 +356,10 @@ export async function checkOut({
         shiftId: shiftId ?? null,
         grandTotal: invoiceGrandTotal,
         productSubtotal,
-        isMemberSession: pricing.isMemberSession,
+        isMemberSession: finalPricing.isMemberSession,
+        playSubtotal: finalPricing.subtotal,
+        promotionDiscount: playDiscountTotal,
+        promotion: toPromotionMetadata(finalPricing.promotion),
       },
     })
 
@@ -303,15 +373,15 @@ export async function checkOut({
     customerName: session.customer.fullName,
     startTime: session.startTime,
     endTime,
-    totalHours: pricing.totalHours,
-    hourlyRate: pricing.hourlyRate,
+    totalHours: finalPricing.totalHours,
+    hourlyRate: finalPricing.hourlyRate,
     subtotal: invoiceSubtotal,
-    playSubtotal: pricing.subtotal,
+    playSubtotal: finalPricing.subtotal,
     productSubtotal,
-    typeDiscount: pricing.typeDiscount,
-    volumeDiscount: pricing.volumeDiscount,
+    promotionDiscount: playDiscountTotal,
     grandTotal: invoiceGrandTotal,
-    isMemberSession: pricing.isMemberSession,
+    isMemberSession: finalPricing.isMemberSession,
+    promotion: finalPricing.promotion,
     paymentMethod,
     paymentId: result.payment.id,
   }
@@ -349,6 +419,12 @@ export function mapCheckoutError(error: Error): { code: string; message: string;
   }
   if (message === 'MEMBERSHIP_EXPIRED_DURING_CHECKOUT') {
     return { code: 'MEMBERSHIP_EXPIRED_DURING_CHECKOUT', message: 'Gói hội viên đã hết hạn trong lúc checkout. Vui lòng thử lại.', status: 409 }
+  }
+  if (message === 'PROMOTION_UNAVAILABLE') {
+    return { code: 'PROMOTION_UNAVAILABLE', message: 'Khuyến mại không còn hiệu lực. Vui lòng chọn lại trước khi thu tiền.', status: 409 }
+  }
+  if (message === 'PROMOTION_NOT_APPLICABLE') {
+    return { code: 'PROMOTION_NOT_APPLICABLE', message: 'Khuyến mại chỉ áp dụng cho tiền giờ chơi khách vãng lai.', status: 400 }
   }
 
   return { code: 'UNKNOWN', message: 'Lỗi máy chủ', status: 500 }
