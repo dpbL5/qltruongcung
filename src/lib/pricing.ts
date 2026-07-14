@@ -5,7 +5,7 @@ import {
 } from '@/lib/promotion-calculation'
 import { prisma } from '@/lib/prisma'
 import { calcHours, getDayType, getVnDay, getVnHour } from '@/lib/utils'
-import type { DayType } from '@/types'
+import type { DayType, PricingRuleSnapshot } from '@/types'
 
 export interface PricingResult {
   hourlyRate: number
@@ -25,6 +25,28 @@ export async function findApplicableRate(
   const rule = await findApplicablePricingRule(currentHour, dayType, at)
   if (!rule) throw new Error('PRICING_RULE_NOT_FOUND')
   return Number(rule.ratePerHour)
+}
+
+/**
+ * Lấy danh sách bảng giá đang hiệu lực ở thời điểm hiện tại (cho UI dropdown chọn bảng giá).
+ */
+export async function getApplicablePricingRules(at: Date = new Date()) {
+  return prisma.pricingRule.findMany({
+    where: pricingRuleWhere(getVnHour(at), getDayType(at), at),
+    include: { tiers: { orderBy: { minHours: 'asc' } } },
+    orderBy: [{ effectiveFrom: 'desc' }, { createdAt: 'desc' }],
+  })
+}
+
+/**
+ * Fetch rule + tiers theo ID để snapshot vào session khi check-in.
+ */
+export async function fetchPricingRuleForSnapshot(ruleId: string) {
+  const rule = await prisma.pricingRule.findUnique({
+    where: { id: ruleId },
+    include: { tiers: { orderBy: { minHours: 'asc' } } },
+  })
+  return rule
 }
 
 export async function countApplicablePricingRules(at: Date = new Date()): Promise<number> {
@@ -147,18 +169,29 @@ export async function calculateSessionPrice(
   const currentHour = getVnHour(session.startTime)
   const dayType = getDayType(session.startTime)
 
-  const applicableRule = await findApplicablePricingRule(currentHour, dayType, session.startTime)
-
   let hourlyRate: number
   let tiers: { minHours: number; ratePerHour: number }[] = []
 
-  if (applicableRule) {
-    hourlyRate = Number(applicableRule.ratePerHour)
-    tiers = await fetchPricingTiers(applicableRule.id)
+  // ── Dùng bảng giá đã snapshot lúc check-in nếu có ──
+  const snapshot = (session as any).pricingRuleSnapshot as PricingRuleSnapshot | null
+  if (snapshot) {
+    hourlyRate = snapshot.ratePerHour
+    tiers = snapshot.tiers.map((t) => ({
+      minHours: t.minHours,
+      ratePerHour: t.ratePerHour,
+    }))
   } else {
-    hourlyRate = Number(session.hourlyRate)
-    if (!hourlyRate) {
-      hourlyRate = await findApplicableRate(currentHour, dayType, session.startTime)
+    // ── Fallback: resolve lại bảng giá từ DB (tương thích session cũ) ──
+    const applicableRule = await findApplicablePricingRule(currentHour, dayType, session.startTime)
+
+    if (applicableRule) {
+      hourlyRate = Number(applicableRule.ratePerHour)
+      tiers = await fetchPricingTiers(applicableRule.id)
+    } else {
+      hourlyRate = Number(session.hourlyRate)
+      if (!hourlyRate) {
+        hourlyRate = await findApplicableRate(currentHour, dayType, session.startTime)
+      }
     }
   }
 
@@ -241,7 +274,7 @@ export function calculateTieredSubtotal(
   return subtotal
 }
 
-async function findApplicablePricingRule(
+export async function findApplicablePricingRule(
   currentHour: number,
   dayType: DayType,
   at: Date

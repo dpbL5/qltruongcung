@@ -1,5 +1,14 @@
 @AGENTS.md
 
+<!--
+  Mối quan hệ CLAUDE.md / AGENTS.md:
+  - AGENTS.md là tập con — business invariants + architecture guidance cốt lõi.
+  - CLAUDE.md (file này) là tài liệu đầy đủ: conventions, UI patterns, API routes, domain knowledge.
+  - AGENTS.md được include qua dòng @AGENTS.md ở trên. Khi sửa business rule,
+    sửa AGENTS.md trước, sau đó cập nhật phần tương ứng trong CLAUDE.md nếu cần.
+  - Claude Code đọc CLAUDE.md; các coding agent khác (Copilot, etc.) có thể chỉ đọc AGENTS.md.
+-->
+
 # Victoria Archery Club — POS System
 
 ## Brand
@@ -557,6 +566,62 @@ export async function POST(request: NextRequest) {
 - Mutations trên nhiều table **phải dùng `prisma.$transaction()`**
 - Dynamic params trong Next.js 16 là `Promise`: `{ params }: { params: Promise<{ id: string }> }`
 
+### 10b. Use-case Architecture (Business Logic Layer)
+
+Các nghiệp vụ phức tạp được extract vào `src/lib/business/use-cases/` theo pattern **use-case function + error mapper**:
+
+```
+src/lib/business/
+├── audit.ts              # logActivity() — ghi ActivityLog
+├── invoices.ts           # Helpers tạo invoice
+├── memberships.ts        # findActiveMembership(), helpers membership
+├── promotions.ts         # Promotion rule engine
+├── shifts.ts             # findOpenShiftForStaff()
+└── use-cases/
+    ├── checkIn.ts         # checkIn() + mapCheckInError()
+    ├── checkOut.ts        # checkOut() + mapCheckOutError()
+    ├── closeShift.ts      # closeShift() + mapCloseShiftError()
+    ├── openOrJoinShift.ts # openOrJoinShift() + mapOpenOrJoinShiftError()
+    ├── registerMember.ts  # registerMember() + mapRegisterMemberError()
+    ├── renewMembership.ts # renewMembership() + mapRenewMembershipError()
+    └── sellItems.ts       # sellItems() + mapSellItemsError()
+```
+
+**Pattern mỗi use-case:**
+1. **Input interface** — params rõ ràng, có `now?: Date` để test được.
+2. **Result interface** — shape trả về chính xác cho route handler.
+3. **Main function** — chứa toàn bộ business logic, validation, gọi `prisma.$transaction()` cho mutations.
+4. **`mapXxxError(error: Error): { code, message, status }`** — mapping từ error code (string throw trong use-case) sang HTTP response. Route handler chỉ cần catch error và gọi mapper.
+
+```ts
+// Route handler pattern khi dùng use-case:
+export async function POST(request: NextRequest) {
+  try {
+    await requireAuth();
+    const body = await request.json();
+    const result = await checkIn(body);
+    return NextResponse.json({ success: true, data: result }, { status: 201 });
+  } catch (error) {
+    const mapped = mapCheckInError(error as Error);
+    if (mapped.code === "UNKNOWN") {
+      console.error("POST /api/sessions error:", error);
+    }
+    return NextResponse.json(
+      { success: false, error: mapped.message },
+      { status: mapped.status }
+    );
+  }
+}
+```
+
+**Error code convention:** Dùng `UPPER_SNAKE_CASE` string (vd: `SHIFT_REQUIRED`, `MEMBERSHIP_REQUIRED`, `CUSTOMER_NOT_FOUND`, `ACTIVE_SESSION_EXISTS`). Throw bằng `new Error("CODE")`, không dùng custom Error class. Mapper dịch code → message tiếng Việt + HTTP status.
+
+**Luật:**
+- **Không đặt business logic trong route handler** — route handler chỉ validate, authorize, gọi use-case, map error, trả response.
+- **Không đặt business logic trong React component** — component chỉ render UI và gọi API.
+- Use-case functions nhận `prisma` transaction client (`tx`) khi cần embed trong transaction lớn hơn; các helper như `findOpenShiftForStaff` nhận `tx | prisma` để linh hoạt.
+- Mọi mutation tài chính (check-in, checkout, gia hạn, đóng ca, bán hàng) phải ghi `ActivityLog` qua `logActivity()`.
+
 ### 11. Validation (Zod)
 
 **Pattern:**
@@ -580,10 +645,25 @@ export type CreateThingInput = z.infer<typeof createThingSchema>;
 
 ### 12. Auth
 
-- `src/proxy.ts` bảo vệ dashboard routes — redirect về `/login` nếu không có session hợp lệ
-- Session lưu trong httpOnly cookie tên `qltrungcung_session`, stateless JWT với `jose`
-- API gọi `requireAuth()` (ném `"UNAUTHORIZED"` nếu chưa login)
-- Client check auth: gọi `GET /api/auth/me` → nếu `!d.success` thì `router.push("/login")`
+Hệ thống auth có 2 lớp bảo vệ:
+
+**Lớp 1 — Middleware (`src/proxy.ts`):**
+- Dùng Next.js middleware (config matcher loại trừ `/api`, `_next/static`, `_next/image`, `favicon.ico`) để chặn request vào dashboard routes.
+- Verify JWT từ httpOnly cookie `qltrungcung_session` bằng `jose` (`jwtVerify`).
+- Public paths: `/login` và static assets (image, font, js, css...) được bypass.
+- Nếu token không hợp lệ hoặc hết hạn → redirect về `/login` kèm `callbackUrl` để quay lại sau khi đăng nhập.
+- `callbackUrl` chỉ chấp nhận internal path (bắt đầu bằng `/`, không phải `//`) để chống open redirect.
+- Ở production, throw ngay nếu `SESSION_SECRET` chưa được cấu hình hoặc quá ngắn (< 32 ký tự).
+
+**Lớp 2 — API Route Handler (`src/lib/auth.ts`):**
+- API gọi `requireAuth()` (ném `"UNAUTHORIZED"` nếu chưa login hoặc token không hợp lệ).
+- `requireAuth()` trả về `{ userId, role }` để route handler dùng cho authorization.
+- Admin-only routes kiểm tra `role !== "ADMIN"` → ném `"FORBIDDEN"`.
+
+**Session:**
+- Stateless JWT (HS256), lưu trong httpOnly cookie tên `qltrungcung_session`.
+- `SESSION_SECRET` bắt buộc ≥ 32 ký tự, tạo bằng `openssl rand -hex 32`.
+- Client check auth: gọi `GET /api/auth/me` → nếu `!d.success` thì `router.push("/login")`.
 
 ### 13. Error Handling
 
@@ -821,6 +901,20 @@ npm run seed:expired     # Seed khách hàng hết hạn để test
 npm run check:db         # Kiểm tra kết nối database
 npx prisma generate      # Generate Prisma client (tự động chạy qua postinstall)
 npx prisma studio        # Prisma Studio (DB GUI)
+```
+
+## Testing
+
+- **Test runner**: Vitest với `globals: true`, `environment: 'node'`.
+- **Vị trí test**: `src/lib/__tests__/` — test cho business logic (pricing, memberships, validations, promotions). Không tạo thư mục `__tests__` ở root.
+- **Path alias**: Vitest config có alias `@` → `./src` giống như Next.js.
+- **Không test UI components** ở giai đoạn này — tập trung test business logic và validation.
+- **Pattern viết test**: Dùng `describe`/`it` blocks, import trực tiếp function từ `@/lib/...`. Test prisma-dependent code bằng mock hoặc in-memory chưa có — ưu tiên test pure logic (pricing calculation, validation schemas, membership period math).
+
+```bash
+npm test                                          # Chạy tất cả test
+npm run test:watch                                # Watch mode
+npx vitest run src/lib/__tests__/pricing.test.ts  # Chạy 1 file
 ```
 
 ## Ràng buộc quan trọng

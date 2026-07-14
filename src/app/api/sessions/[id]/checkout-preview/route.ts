@@ -43,6 +43,41 @@ export async function GET(
     }
 
     const pricing = await calculateSessionPrice(id, new Date(), promotion)
+
+    // ── Lấy danh sách bán kèm chưa thanh toán (DRAFT invoices) ──
+    const draftInvoices = await prisma.invoice.findMany({
+      where: { sessionId: id, status: 'DRAFT' },
+      include: {
+        items: {
+          where: { productId: { not: null } },
+          select: {
+            productId: true,
+            description: true,
+            type: true,
+            quantity: true,
+            unitPrice: true,
+            subtotal: true,
+          },
+        },
+      },
+    })
+
+    let pendingSellTotal = 0
+    const pendingSellItems: PlayTimeQuote['pendingSellItems'] = []
+    for (const draft of draftInvoices) {
+      pendingSellTotal += Number(draft.grandTotal)
+      for (const item of draft.items) {
+        pendingSellItems.push({
+          productId: item.productId!,
+          productName: item.description,
+          type: item.type as 'PRODUCT' | 'SERVICE',
+          quantity: Number(item.quantity),
+          unitPrice: Number(item.unitPrice),
+          subtotal: Number(item.subtotal),
+        })
+      }
+    }
+
     const quote: PlayTimeQuote = {
       sessionId: id,
       totalHours: pricing.totalHours,
@@ -52,6 +87,8 @@ export async function GET(
       grandTotal: pricing.grandTotal,
       isMemberSession: pricing.isMemberSession,
       promotion: pricing.promotion,
+      pendingSellTotal,
+      pendingSellItems,
     }
 
     return NextResponse.json({ success: true, data: quote })

@@ -4,7 +4,6 @@ import { sellItems, mapSellItemsError } from '@/lib/business/use-cases/sellItems
 import { z } from 'zod'
 
 const sellSchema = z.object({
-  paymentMethod: z.enum(['CASH', 'TRANSFER', 'CARD']),
   items: z
     .array(
       z.object({
@@ -37,7 +36,6 @@ export async function POST(
     const result = await sellItems({
       sessionId: id,
       staffId: auth.userId,
-      paymentMethod: parsed.data.paymentMethod,
       items: parsed.data.items,
       notes: parsed.data.notes,
     })

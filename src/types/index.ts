@@ -47,6 +47,17 @@ export interface PlayTimeQuote {
   grandTotal: number
   isMemberSession: boolean
   promotion: PromotionSnapshot | null
+  pendingSellTotal: number
+  pendingSellItems: PendingSellItem[]
+}
+
+export interface PendingSellItem {
+  productId: string
+  productName: string
+  type: 'PRODUCT' | 'SERVICE'
+  quantity: number
+  unitPrice: number
+  subtotal: number
 }
 
 export interface PricingTier {
@@ -54,6 +65,18 @@ export interface PricingTier {
   ruleId: string
   minHours: number
   ratePerHour: number | string
+}
+
+export interface PricingRuleTierSnapshot {
+  minHours: number
+  ratePerHour: number
+}
+
+export interface PricingRuleSnapshot {
+  ruleId: string
+  name: string
+  ratePerHour: number
+  tiers: PricingRuleTierSnapshot[]
 }
 
 // ── Session payload (JWT) ──────────────────────────────

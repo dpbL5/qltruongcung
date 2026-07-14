@@ -145,6 +145,8 @@ model Session {
   status                 SessionStatus          @default(ACTIVE)
   totalHours             Decimal?               @map("total_hours") @db.Decimal(5, 2)
   hourlyRate             Decimal                @map("hourly_rate") @db.Decimal(10, 0)
+  pricingRuleId          String?                @map("pricing_rule_id")
+  pricingRuleSnapshot    Json?                  @map("pricing_rule_snapshot")
   promotionRuleId        String?                @map("promotion_rule_id")
   promotionName          String?                @map("promotion_name") @db.VarChar(100)
   promotionDiscountType  PromotionDiscountType? @map("promotion_discount_type")
@@ -162,6 +164,7 @@ model Session {
   @@index([customerId, status])
   @@index([shiftId])
   @@index([membershipId])
+  @@index([pricingRuleId])
   @@index([promotionRuleId])
   @@map("sessions")
 }

@@ -2,12 +2,14 @@ import { logActivity } from '@/lib/business/audit'
 import { findActiveMembership } from '@/lib/business/memberships'
 import { findOpenShiftForStaff } from '@/lib/business/shifts'
 import { prisma } from '@/lib/prisma'
-import { findApplicableRate } from '@/lib/pricing'
-import { getDayType, getVnHour, parseStartOfDay, parseEndOfDay } from '@/lib/utils'
+import { findApplicableRate, findApplicablePricingRule, fetchPricingRuleForSnapshot } from '@/lib/pricing'
+import { getDayType, getVnHour, getVnDay, parseStartOfDay, parseEndOfDay } from '@/lib/utils'
+import type { PricingRuleSnapshot } from '@/types'
 
 export interface CheckInInput {
   staffId: string
   customerId?: string
+  pricingRuleId?: string
   now?: Date
 }
 
@@ -19,32 +21,97 @@ export interface CheckInResult {
   membershipId: string | null
   startTime: Date
   hourlyRate: number
+  pricingRuleId: string | null
+  pricingRuleSnapshot: PricingRuleSnapshot | null
   status: 'ACTIVE'
   customer: { id: string; fullName: string; type: 'WALK_IN' | 'MEMBER' }
   membership: { id: string; startsAt: Date; expiresAt: Date } | null
   shift: { id: string; openedAt: Date; status: 'OPEN' | 'CLOSED' } | null
 }
 
+async function resolvePricingSnapshot(
+  pricingRuleId: string | undefined,
+  now: Date,
+): Promise<{ pricingRuleId: string; pricingRuleSnapshot: PricingRuleSnapshot }> {
+  if (pricingRuleId) {
+    const rule = await fetchPricingRuleForSnapshot(pricingRuleId)
+    if (!rule) throw new Error('PRICING_RULE_NOT_FOUND')
+
+    // Kiểm tra bảng giá còn hiệu lực ở thời điểm check-in
+    const currentDay = getVnDay(now)
+    const dayMatches =
+      rule.daysOfWeek.length === 0 || rule.daysOfWeek.includes(currentDay)
+    const effectiveFromOk = rule.effectiveFrom <= now
+    const effectiveToOk = !rule.effectiveTo || rule.effectiveTo >= now
+
+    if (!dayMatches || !effectiveFromOk || !effectiveToOk) {
+      throw new Error('PRICING_RULE_NOT_EFFECTIVE')
+    }
+
+    return {
+      pricingRuleId: rule.id,
+      pricingRuleSnapshot: {
+        ruleId: rule.id,
+        name: rule.name,
+        ratePerHour: Number(rule.ratePerHour),
+        tiers: rule.tiers.map((t) => ({
+          minHours: t.minHours,
+          ratePerHour: Number(t.ratePerHour),
+        })),
+      },
+    }
+  }
+
+  // Auto-resolve: tìm bảng giá phù hợp nhất theo giờ/ngày hiện tại
+  const currentHour = getVnHour(now)
+  const dayType = getDayType(now)
+  const rule = await findApplicablePricingRule(currentHour, dayType, now)
+  if (!rule) throw new Error('PRICING_RULE_NOT_FOUND')
+
+  // Fetch tiers cho rule được auto-resolve
+  const tiers = await prisma.pricingTier.findMany({
+    where: { ruleId: rule.id },
+    orderBy: { minHours: 'asc' },
+  })
+
+  return {
+    pricingRuleId: rule.id,
+    pricingRuleSnapshot: {
+      ruleId: rule.id,
+      name: rule.name,
+      ratePerHour: Number(rule.ratePerHour),
+      tiers: tiers.map((t) => ({
+        minHours: t.minHours,
+        ratePerHour: Number(t.ratePerHour),
+      })),
+    },
+  }
+}
+
 export async function checkIn({
   staffId,
   customerId,
+  pricingRuleId,
   now = new Date(),
 }: CheckInInput): Promise<CheckInResult> {
   if (!customerId) {
-    return checkInAnonymousWalkIn({ staffId, now })
+    return checkInAnonymousWalkIn({ staffId, pricingRuleId, now })
   }
 
-  return checkInRegisteredCustomer({ staffId, customerId, now })
+  return checkInRegisteredCustomer({ staffId, customerId, pricingRuleId, now })
 }
 
 async function checkInAnonymousWalkIn({
   staffId,
+  pricingRuleId,
   now,
 }: {
   staffId: string
+  pricingRuleId?: string
   now: Date
 }) {
-  const applicableRate = await findApplicableRate(getVnHour(now), getDayType(now), now)
+  const { pricingRuleId: resolvedId, pricingRuleSnapshot } = await resolvePricingSnapshot(pricingRuleId, now)
+  const applicableRate = pricingRuleSnapshot.ratePerHour
 
   const result = await prisma.$transaction(async (tx) => {
     // ── Dùng parseStartOfDay/parseEndOfDay để tính mốc ngày theo giờ Việt Nam (UTC+7) ──
@@ -81,6 +148,8 @@ async function checkInAnonymousWalkIn({
         shiftId: openShift.id,
         startTime: now,
         hourlyRate: applicableRate,
+        pricingRuleId: resolvedId,
+        pricingRuleSnapshot: pricingRuleSnapshot as any,
         status: 'ACTIVE',
       },
       include: {
@@ -100,6 +169,7 @@ async function checkInAnonymousWalkIn({
         customerType: 'WALK_IN',
         shiftId: openShift.id,
         hourlyRate: applicableRate,
+        pricingRuleId: resolvedId,
       },
     })
 
@@ -115,10 +185,12 @@ async function checkInAnonymousWalkIn({
 async function checkInRegisteredCustomer({
   staffId,
   customerId,
+  pricingRuleId,
   now,
 }: {
   staffId: string
   customerId: string
+  pricingRuleId?: string
   now: Date
 }) {
   const customer = await prisma.customer.findUnique({
@@ -137,6 +209,8 @@ async function checkInRegisteredCustomer({
 
   let membershipId: string | undefined
   let rate = 0
+  let resolvedPricingRuleId: string | undefined
+  let pricingRuleSnapshot: PricingRuleSnapshot | undefined
 
   if (customer.type === 'MEMBER') {
     const activeMembership = await findActiveMembership(prisma, customer.id, now)
@@ -146,7 +220,10 @@ async function checkInRegisteredCustomer({
     membershipId = activeMembership.id
     rate = 0
   } else {
-    rate = await findApplicableRate(getVnHour(now), getDayType(now), now)
+    const resolved = await resolvePricingSnapshot(pricingRuleId, now)
+    resolvedPricingRuleId = resolved.pricingRuleId
+    pricingRuleSnapshot = resolved.pricingRuleSnapshot
+    rate = pricingRuleSnapshot.ratePerHour
   }
 
   const result = await prisma.$transaction(async (tx) => {
@@ -163,6 +240,8 @@ async function checkInRegisteredCustomer({
         membershipId,
         startTime: now,
         hourlyRate: rate,
+        pricingRuleId: resolvedPricingRuleId,
+        pricingRuleSnapshot: pricingRuleSnapshot as any,
         status: 'ACTIVE',
       },
       include: {
@@ -183,6 +262,7 @@ async function checkInRegisteredCustomer({
         membershipId,
         shiftId: openShift.id,
         hourlyRate: rate,
+        pricingRuleId: resolvedPricingRuleId,
       },
     })
 
@@ -215,6 +295,13 @@ export function mapCheckInError(error: Error): { code: string; message: string; 
     return {
       code: 'PRICING_RULE_NOT_FOUND',
       message: 'Không có quy tắc bảng giá hiệu lực cho thời điểm hiện tại. Vui lòng cập nhật bảng giá trước khi check-in khách vãng lai.',
+      status: 400,
+    }
+  }
+  if (message === 'PRICING_RULE_NOT_EFFECTIVE') {
+    return {
+      code: 'PRICING_RULE_NOT_EFFECTIVE',
+      message: 'Bảng giá đã chọn không còn hiệu lực. Vui lòng chọn bảng giá khác.',
       status: 400,
     }
   }

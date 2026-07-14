@@ -214,6 +214,19 @@ export function ReportsScreen() {
             tone="danger"
             title="Không tải được dữ liệu"
             description={error}
+            action={
+              <Button
+                variant="secondary"
+                size="sm"
+                icon={RefreshCw}
+                onClick={() => {
+                  void loadDashboard()
+                  void loadRevenue(from, to)
+                }}
+              >
+                Thử lại
+              </Button>
+            }
           />
         )}
 

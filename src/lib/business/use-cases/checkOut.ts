@@ -103,10 +103,41 @@ export async function checkOut({
   let playTotal = Math.max(0, pricing.grandTotal)
 
   const quantityByProductId = new Map<string, number>()
+  const newQuantityByProductId = new Map<string, number>() // chỉ món mới thêm lúc checkout — cần trừ kho
+
+  // ── Gom sản phẩm từ hóa đơn DRAFT (bán kèm — đã trừ kho lúc thêm vào phiên) ──
+  const draftInvoices = await prisma.invoice.findMany({
+    where: { sessionId, status: 'DRAFT' },
+    include: {
+      items: {
+        where: { productId: { not: null } },
+        select: { productId: true, quantity: true },
+      },
+    },
+  })
+
+  const draftInvoiceIds: string[] = []
+  for (const draft of draftInvoices) {
+    draftInvoiceIds.push(draft.id)
+    for (const item of draft.items) {
+      if (item.productId) {
+        quantityByProductId.set(
+          item.productId,
+          (quantityByProductId.get(item.productId) ?? 0) + Number(item.quantity)
+        )
+      }
+    }
+  }
+
+  // ── Gom sản phẩm từ request checkout hiện tại (cần trừ kho) ──
   for (const item of items) {
     quantityByProductId.set(
       item.productId,
       (quantityByProductId.get(item.productId) ?? 0) + item.quantity
+    )
+    newQuantityByProductId.set(
+      item.productId,
+      (newQuantityByProductId.get(item.productId) ?? 0) + item.quantity
     )
   }
 
@@ -274,14 +305,16 @@ export async function checkOut({
         },
       })
 
-      if (latestProduct.type === 'PRODUCT') {
+      // Chỉ trừ kho cho món mới thêm lúc checkout (món DRAFT đã trừ kho lúc bán kèm)
+      const newQuantity = newQuantityByProductId.get(line.productId) ?? 0
+      if (latestProduct.type === 'PRODUCT' && newQuantity > 0) {
         const stockUpdate = await tx.product.updateMany({
           where: {
             id: latestProduct.id,
-            stockQuantity: { gte: line.quantity },
+            stockQuantity: { gte: newQuantity },
           },
           data: {
-            stockQuantity: { decrement: line.quantity },
+            stockQuantity: { decrement: newQuantity },
           },
         })
 
@@ -296,7 +329,7 @@ export async function checkOut({
             shiftId,
             staffId,
             type: 'SALE',
-            quantity: -line.quantity,
+            quantity: -newQuantity,
             unitCost: latestProduct.costPrice,
             reason: `Bán kèm phiên ${sessionId}`,
           },
@@ -345,6 +378,17 @@ export async function checkOut({
       },
     })
 
+    // ── Huỷ các hóa đơn DRAFT (bán kèm) vì đã gộp vào hóa đơn checkout ──
+    if (draftInvoiceIds.length > 0) {
+      await tx.invoice.updateMany({
+        where: { id: { in: draftInvoiceIds }, status: 'DRAFT' },
+        data: {
+          status: 'CANCELLED',
+          notes: `Đã gộp vào hóa đơn ${invoice.invoiceNo}`,
+        },
+      })
+    }
+
     await logActivity(tx, {
       userId: staffId,
       action: 'SESSION_CHECK_OUT',
@@ -360,6 +404,7 @@ export async function checkOut({
         playSubtotal: finalPricing.subtotal,
         promotionDiscount: playDiscountTotal,
         promotion: toPromotionMetadata(finalPricing.promotion),
+        mergedDraftInvoices: draftInvoiceIds.length > 0 ? draftInvoiceIds : undefined,
       },
     })
 

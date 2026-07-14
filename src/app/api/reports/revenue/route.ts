@@ -61,6 +61,28 @@ export async function GET(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
     console.error('GET /api/reports/revenue error:', error)
+
+    // ── Phân biệt lỗi kết nối DB (Supabase free tier) vs lỗi khác ──
+    const message = (error as Error).message ?? ''
+    if (
+      message.includes('Connection terminated') ||
+      message.includes('Connection pool') ||
+      message.includes('too many clients') ||
+      message.includes('remaining connection slots') ||
+      message.includes('Connection reset') ||
+      message.includes('ECONNRESET') ||
+      message.includes('ETIMEDOUT') ||
+      message.includes('connect ETIMEDOUT')
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Không kết nối được database. Supabase free tier có thể đang quá tải — vui lòng thử lại sau vài giây.',
+        },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 })
   }
 }

@@ -45,6 +45,13 @@ import type {
 
 type CheckInMode = 'WALK_IN' | 'MEMBER'
 
+interface PricingRuleOption {
+  id: string
+  name: string
+  ratePerHour: number
+  tiers: { minHours: number; ratePerHour: number }[]
+}
+
 interface CheckoutResponse {
   grandTotal: number
 }
@@ -498,6 +505,8 @@ function ActiveSessionCard({
 }) {
   const isMember = session.customer.type === 'MEMBER'
   const currentCost = isMember ? 0 : calcCurrentPlayCost(session.startTime, session.hourlyRate)
+  const pendingSell = toNumber(session.pendingSellTotal ?? 0)
+  const runningTotal = currentCost + pendingSell
 
   return (
     <div className="grid grid-cols-[1fr_auto] gap-3 px-4 py-3">
@@ -518,11 +527,23 @@ function ActiveSessionCard({
           <span>{formatClock(session.startTime)}</span>
           {session.shift ? <span>Ca {formatClock(session.shift.openedAt)}</span> : <span>Chưa gắn ca</span>}
         </div>
+        {!isMember && session.pricingRuleSnapshot && (
+          <p className="mt-1 text-xs text-zinc-400 dark:text-zinc-500">
+            Bảng giá: {session.pricingRuleSnapshot.name} — {money(session.pricingRuleSnapshot.ratePerHour)}/giờ
+          </p>
+        )}
       </div>
       <div className="flex flex-col items-end justify-between gap-2">
-        <p className="text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
-          {money(currentCost)}
-        </p>
+        <div className="text-right">
+          <p className="text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
+            {money(runningTotal)}
+          </p>
+          {pendingSell > 0 && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {money(currentCost)} giờ + {money(pendingSell)} thêm
+            </p>
+          )}
+        </div>
         <Button variant="inverse" size="xs" disabled={checkoutDisabled} onClick={onCheckout}>
           Thu
         </Button>
@@ -738,6 +759,9 @@ function CheckInDialog({
   const [newMemberPhone, setNewMemberPhone] = useState('')
   const [planId, setPlanId] = useState('')
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
+  const [applicablePricingRules, setApplicablePricingRules] = useState<PricingRuleOption[]>([])
+  const [selectedPricingRuleId, setSelectedPricingRuleId] = useState('')
+  const [pricingRulesLoading, setPricingRulesLoading] = useState(false)
 
   useEffect(() => {
     if (!open) return
@@ -754,7 +778,24 @@ function CheckInDialog({
     setNewMemberPhone('')
     setPlanId(membershipPlans[0]?.id ?? '')
     setPaymentMethod('CASH')
+    setApplicablePricingRules([])
+    setSelectedPricingRuleId('')
     /* eslint-enable react-hooks/set-state-in-effect */
+
+    // Fetch applicable pricing rules cho WALK_IN mode
+    setPricingRulesLoading(true)
+    apiJson<PricingRuleOption[]>('/api/pricing/applicable')
+      .then((data) => {
+        if (data.success) {
+          const rules = data.data ?? []
+          setApplicablePricingRules(rules)
+          if (rules.length > 0) {
+            setSelectedPricingRuleId(rules[0].id)
+          }
+        }
+      })
+      .catch(() => { /* bỏ qua lỗi, pricing rules optional */ })
+      .finally(() => setPricingRulesLoading(false))
   }, [open, initialMode, membershipPlans])
 
   const searchMembers = async () => {
@@ -802,7 +843,11 @@ function CheckInDialog({
   }
 
   const createSession = async (customerId: string) => {
-    const data = await apiJson<SessionRow>('/api/sessions', jsonRequest({ customerId }))
+    const body: Record<string, unknown> = { customerId }
+    if (mode === 'WALK_IN' && selectedPricingRuleId) {
+      body.pricingRuleId = selectedPricingRuleId
+    }
+    const data = await apiJson<SessionRow>('/api/sessions', jsonRequest(body))
     if (!data.success) {
       notifyError(data.error || 'Không check-in được')
       return false
@@ -961,6 +1006,46 @@ function CheckInDialog({
               onChange={(event) => setWalkInName(event.target.value)}
               placeholder="Nhập tên khách"
             />
+            {applicablePricingRules.length > 0 && (
+              <div className="mt-3">
+                <Label htmlFor="pricing-rule">Bảng giá áp dụng</Label>
+                <Select
+                  id="pricing-rule"
+                  value={selectedPricingRuleId}
+                  disabled={pricingRulesLoading}
+                  onChange={(event) => setSelectedPricingRuleId(event.target.value)}
+                >
+                  {applicablePricingRules.map((rule) => (
+                    <option key={rule.id} value={rule.id}>
+                      {rule.name} — {money(rule.ratePerHour)}/giờ
+                      {rule.tiers.length > 0 ? ` (${rule.tiers.length} bậc luỹ tiến)` : ''}
+                    </option>
+                  ))}
+                </Select>
+                {selectedPricingRuleId && (() => {
+                  const selected = applicablePricingRules.find((r) => r.id === selectedPricingRuleId)
+                  if (!selected || selected.tiers.length === 0) return null
+                  return (
+                    <div className="mt-2 rounded-lg bg-zinc-50 p-2 dark:bg-zinc-900">
+                      <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400">Giá luỹ tiến:</p>
+                      <div className="mt-1 space-y-0.5">
+                        <p className="text-xs text-zinc-600 dark:text-zinc-300">
+                          0-{selected.tiers[0].minHours}h: {money(selected.ratePerHour)}/giờ
+                        </p>
+                        {selected.tiers.map((tier, i) => {
+                          const nextMin = selected.tiers[i + 1]?.minHours
+                          return (
+                            <p key={i} className="text-xs text-zinc-600 dark:text-zinc-300">
+                              {tier.minHours}h{nextMin ? `-${nextMin}h` : '+'}: {money(tier.ratePerHour)}/giờ
+                            </p>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })()}
+              </div>
+            )}
             {!pricingReady && (
               <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
                 Cần tạo bảng giá trước khi check-in khách vãng lai.
@@ -1233,6 +1318,8 @@ function CheckoutDrawer({
   const playSubtotal = playQuote?.subtotal ?? 0
   const playDiscount = playQuote?.discountAmount ?? 0
   const playTotal = playQuote?.grandTotal ?? 0
+  const pendingSellTotal = playQuote?.pendingSellTotal ?? 0
+  const pendingSellItems = playQuote?.pendingSellItems ?? []
 
   const cartLines = products
     .map((product) => ({
@@ -1243,7 +1330,7 @@ function CheckoutDrawer({
     .filter((line) => line.quantity > 0)
 
   const productSubtotal = cartLines.reduce((sum, line) => sum + line.total, 0)
-  const grandTotal = playTotal + productSubtotal
+  const grandTotal = playTotal + pendingSellTotal + productSubtotal
 
   const changeCart = (product: Product, delta: number) => {
     setCart((current) => {
@@ -1331,6 +1418,20 @@ function CheckoutDrawer({
                 )}
                 {playDiscount > 0 && <InvoiceRow label="Tiền giờ chơi sau giảm" value={money(playTotal)} />}
               </>
+            )}
+            {pendingSellItems.length > 0 && (
+              <div className="border-t border-dashed border-zinc-200 pt-3 dark:border-zinc-800">
+                <p className="mb-2 text-xs font-medium text-zinc-500 dark:text-zinc-400">
+                  Đã thêm vào phiên (chưa thu)
+                </p>
+                {pendingSellItems.map((item, index) => (
+                  <InvoiceRow
+                    key={`${item.productId}-${index}`}
+                    label={`${item.productName} x${item.quantity}`}
+                    value={money(item.subtotal)}
+                  />
+                ))}
+              </div>
             )}
             {cartLines.map((line) => (
               <InvoiceRow
@@ -1464,13 +1565,11 @@ function SellDialog({
   onDone: () => Promise<void>
 }) {
   const { success: notifySuccess, error: notifyError } = useToast()
-  const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [cart, setCart] = useState<Record<string, number>>({})
 
   useEffect(() => {
     if (session) {
       /* eslint-disable react-hooks/set-state-in-effect */
-      setPaymentMethod('CASH')
       setCart({})
       /* eslint-enable react-hooks/set-state-in-effect */
     }
@@ -1503,7 +1602,7 @@ function SellDialog({
   const handleSell = async () => {
     if (!session) return
     if (!shiftReady) {
-      notifyError('Cần mở ca trước khi bán hàng')
+      notifyError('Cần mở ca trước khi thêm vào phiên')
       return
     }
     if (cartLines.length === 0) {
@@ -1514,7 +1613,6 @@ function SellDialog({
     setSubmitting(true)
     try {
       const data = await apiJson(`/api/sessions/${session.id}/sell`, jsonRequest({
-        paymentMethod,
         items: cartLines.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
@@ -1522,11 +1620,11 @@ function SellDialog({
       }))
 
       if (!data.success) {
-        notifyError(data.error || 'Không bán được')
+        notifyError(data.error || 'Không thêm được vào phiên')
         return
       }
 
-      notifySuccess(`Đã bán ${money(grandTotal)}`)
+      notifySuccess(`Đã thêm ${money(grandTotal)} vào phiên`)
       await onDone()
     } catch {
       notifyError('Lỗi kết nối máy chủ')
@@ -1540,7 +1638,7 @@ function SellDialog({
       open={!!session}
       onClose={onClose}
       title={session ? `Bán kèm - ${session.customer.fullName}` : 'Bán kèm'}
-      description="Thêm đồ uống / dịch vụ cho phiên đang chơi"
+      description="Thêm đồ uống / dịch vụ vào phiên. Tiền sẽ được tính khi thu."
       size="lg"
       footer={
         <Button
@@ -1550,25 +1648,12 @@ function SellDialog({
           disabled={submitting || !shiftReady || cartLines.length === 0}
           onClick={handleSell}
         >
-          {submitting ? 'Đang xử lý...' : `Bán ${money(grandTotal)}`}
+          {submitting ? 'Đang xử lý...' : `Thêm vào phiên ${money(grandTotal)}`}
         </Button>
       }
     >
       {session && (
         <div className="space-y-4">
-          <div>
-            <Label htmlFor="sell-payment-method">Phương thức thanh toán</Label>
-            <Select
-              id="sell-payment-method"
-              value={paymentMethod}
-              onChange={(event) => setPaymentMethod(event.target.value as PaymentMethod)}
-            >
-              <option value="CASH">{paymentMethodLabel('CASH')}</option>
-              <option value="TRANSFER">{paymentMethodLabel('TRANSFER')}</option>
-              <option value="CARD">{paymentMethodLabel('CARD')}</option>
-            </Select>
-          </div>
-
           <div>
             <div className="mb-2 flex items-center justify-between">
               <Label>Đồ uống / dịch vụ</Label>

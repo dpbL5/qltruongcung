@@ -43,9 +43,29 @@ export async function GET(request: NextRequest) {
       prisma.session.count({ where }),
     ])
 
+    // ── Tính tổng tiền bán kèm chưa thanh toán (DRAFT invoices) cho từng phiên ──
+    const sessionIds = data.map((s) => s.id)
+    const draftTotals: Record<string, number> = {}
+    if (sessionIds.length > 0) {
+      const drafts = await prisma.invoice.findMany({
+        where: { sessionId: { in: sessionIds }, status: 'DRAFT' },
+        select: { sessionId: true, grandTotal: true },
+      })
+      for (const d of drafts) {
+        if (d.sessionId) {
+          draftTotals[d.sessionId] = (draftTotals[d.sessionId] ?? 0) + Number(d.grandTotal)
+        }
+      }
+    }
+
+    const enriched = data.map((s) => ({
+      ...s,
+      pendingSellTotal: draftTotals[s.id] ?? 0,
+    }))
+
     return NextResponse.json({
       success: true,
-      data,
+      data: enriched,
       pagination: { page, limit, total, totalPages: Math.ceil(total / limit) },
     })
   } catch (error) {
@@ -85,6 +105,7 @@ export async function POST(request: NextRequest) {
     const session = await checkIn({
       staffId: auth.userId,
       customerId: parsed.data.customerId,
+      pricingRuleId: parsed.data.pricingRuleId,
     })
 
     return NextResponse.json({ success: true, data: session }, { status: 201 })

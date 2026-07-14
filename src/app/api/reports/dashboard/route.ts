@@ -30,40 +30,22 @@ export async function GET() {
       : await findOpenShiftForStaff(prisma, auth.userId)
     const currentShiftId = currentShift?.id
 
+    // ── Batch 1: Core today stats (5-6 queries) ──
     const [
       todayPayments,
       todayPaymentCount,
-      todayPaymentMethods,
-      todayItemTypes,
+      todayInvoices,
       todaySessions,
       completedSessions,
       activeSessions,
       totalCustomersToday,
-      todayInvoices,
-      recentPayments,
-      shiftPayments,
-      shiftPaymentCount,
-      shiftPaymentMethods,
-      shiftItemTypes,
-      shiftActiveSessions,
-      shiftCompletedSessions,
     ] = await Promise.all([
       prisma.payment.aggregate({
         where: paymentWhere,
         _sum: { grandTotal: true },
       }),
       prisma.payment.count({ where: paymentWhere }),
-      prisma.payment.groupBy({
-        by: ['paymentMethod'],
-        where: paymentWhere,
-        _sum: { grandTotal: true },
-        _count: { _all: true },
-      }),
-      prisma.invoiceItem.groupBy({
-        by: ['type'],
-        where: { invoice: invoiceWhere },
-        _sum: { total: true },
-      }),
+      prisma.invoice.count({ where: invoiceWhere }),
       prisma.session.count({
         where: {
           createdAt: { gte: start, lt: end },
@@ -86,26 +68,29 @@ export async function GET() {
       prisma.customer.count({
         where: { createdAt: { gte: start, lt: end } },
       }),
-      prisma.invoice.count({ where: invoiceWhere }),
-      prisma.payment.findMany({
+    ])
+
+    // ── Batch 2: Breakdowns today + shift (4-6 queries) ──
+    const [
+      todayPaymentMethods,
+      todayItemTypes,
+      shiftPayments,
+      shiftPaymentCount,
+      shiftPaymentMethods,
+      shiftItemTypes,
+      shiftActiveSessions,
+      shiftCompletedSessions,
+    ] = await Promise.all([
+      prisma.payment.groupBy({
+        by: ['paymentMethod'],
         where: paymentWhere,
-        include: {
-          invoice: {
-            select: {
-              id: true,
-              invoiceNo: true,
-              customer: { select: { fullName: true } },
-            },
-          },
-          session: {
-            select: {
-              customer: { select: { fullName: true } },
-            },
-          },
-          staff: { select: { fullName: true } },
-        },
-        orderBy: { paidAt: 'desc' },
-        take: 5,
+        _sum: { grandTotal: true },
+        _count: { _all: true },
+      }),
+      prisma.invoiceItem.groupBy({
+        by: ['type'],
+        where: { invoice: invoiceWhere },
+        _sum: { total: true },
       }),
       currentShiftId
         ? prisma.payment.aggregate({
@@ -138,6 +123,28 @@ export async function GET() {
         ? prisma.session.count({ where: { shiftId: currentShiftId, status: 'COMPLETED' } })
         : Promise.resolve(0),
     ])
+
+    // ── Batch 3: Recent payments (1 query — có thể nặng hơn) ──
+    const recentPayments = await prisma.payment.findMany({
+      where: paymentWhere,
+      include: {
+        invoice: {
+          select: {
+            id: true,
+            invoiceNo: true,
+            customer: { select: { fullName: true } },
+          },
+        },
+        session: {
+          select: {
+            customer: { select: { fullName: true } },
+          },
+        },
+        staff: { select: { fullName: true } },
+      },
+      orderBy: { paidAt: 'desc' },
+      take: 5,
+    })
 
     const todayRevenue = Number(todayPayments._sum.grandTotal ?? 0)
     const todayPaymentBreakdown = normalizePaymentBreakdown(todayPaymentMethods)
@@ -238,6 +245,28 @@ export async function GET() {
       return NextResponse.json({ success: false, error: 'Chưa đăng nhập' }, { status: 401 })
     }
     console.error('GET /api/reports/dashboard error:', error)
+
+    // ── Phân biệt lỗi kết nối DB (Supabase free tier) vs lỗi khác ──
+    const message = (error as Error).message ?? ''
+    if (
+      message.includes('Connection terminated') ||
+      message.includes('Connection pool') ||
+      message.includes('too many clients') ||
+      message.includes('remaining connection slots') ||
+      message.includes('Connection reset') ||
+      message.includes('ECONNRESET') ||
+      message.includes('ETIMEDOUT') ||
+      message.includes('connect ETIMEDOUT')
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Không kết nối được database. Supabase free tier có thể đang quá tải — vui lòng thử lại sau vài giây.',
+        },
+        { status: 503 }
+      )
+    }
+
     return NextResponse.json({ success: false, error: 'Lỗi máy chủ' }, { status: 500 })
   }
 }

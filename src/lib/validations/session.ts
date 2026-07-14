@@ -3,6 +3,7 @@ import { z } from "zod";
 
 export const createSessionSchema = z.object({
   customerId: z.string().uuid("ID khách hàng không hợp lệ").optional(),
+  pricingRuleId: z.string().uuid("ID bảng giá không hợp lệ").optional(),
 });
 
 export const checkoutSessionSchema = z.object({

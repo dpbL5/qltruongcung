@@ -1,4 +1,4 @@
-import type { PromotionDiscountType } from '@/types'
+import type { PricingRuleSnapshot, PromotionDiscountType } from '@/types'
 
 export type PaymentMethod = 'CASH' | 'TRANSFER' | 'CARD'
 export type CustomerType = 'WALK_IN' | 'MEMBER'
@@ -31,6 +31,8 @@ export interface SessionRow {
   endTime?: string | null
   status: 'ACTIVE' | 'COMPLETED' | 'CANCELLED'
   hourlyRate: number | string
+  pricingRuleId?: string | null
+  pricingRuleSnapshot?: PricingRuleSnapshot | null
   totalHours?: number | string | null
   subtotal?: number | string | null
   discountAmount?: number | string | null
@@ -44,6 +46,7 @@ export interface SessionRow {
   membership?: { id: string; startsAt: string; expiresAt: string } | null
   shift?: { id: string; openedAt: string; status: 'OPEN' | 'CLOSED' } | null
   payment?: { paymentMethod: PaymentMethod } | null
+  pendingSellTotal?: number
 }
 
 export interface Shift {
