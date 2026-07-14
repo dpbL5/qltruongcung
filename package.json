@@ -10,7 +10,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "postinstall": "prisma generate",
-    "db:push": "prisma db push",
+    "db:push": "prisma db push --accept-data-loss",
+    "db:reset": "prisma db push --accept-data-loss --force-reset",
     "seed:admin": "tsx prisma/seed-admin.ts",
     "seed:expired": "tsx prisma/seed-expired-customer.ts",
     "check:db": "tsx scripts/check-db.ts"

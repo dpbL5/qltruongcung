@@ -814,8 +814,10 @@ npm run start            # Chạy production
 npm run lint             # ESLint
 npm test                 # Chạy test (vitest)
 npm run test:watch       # Chạy test watch mode
+npx vitest run path/to/file  # Chạy 1 file test (vd: npx vitest run src/lib/__tests__/pricing.test.ts)
 npm run db:push          # Sync schema → database
 npm run seed:admin       # Seed tài khoản admin mặc định
+npm run seed:expired     # Seed khách hàng hết hạn để test
 npm run check:db         # Kiểm tra kết nối database
 npx prisma generate      # Generate Prisma client (tự động chạy qua postinstall)
 npx prisma studio        # Prisma Studio (DB GUI)

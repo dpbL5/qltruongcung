@@ -8,7 +8,7 @@ async function check() {
     const tables = await prisma.$queryRaw`
       SELECT table_name
       FROM information_schema.tables
-      WHERE table_schema = 'public'
+      WHERE table_schema = 'app'
       ORDER BY table_name
     `
 
