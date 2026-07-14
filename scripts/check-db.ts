@@ -12,9 +12,13 @@ async function check() {
       ORDER BY table_name
     `
 
+    const dbUrl = process.env.DATABASE_URL ?? ""
+    const host = (() => { try { return new URL(dbUrl).host } catch { return "unknown" } })()
+    const dbName = (() => { try { return new URL(dbUrl).pathname.replace("/", "") || "unknown" } catch { return "unknown" } })()
+
     console.log('✅ Kết nối Postgres thành công')
-    console.log(`   Host     : localhost:5432`)
-    console.log(`   DB       : qltruongcung`)
+    console.log(`   Host     : ${host}`)
+    console.log(`   DB       : ${dbName}`)
     console.log(`   Users    : ${userCount}`)
     console.log(`   Admin    : ${admin ? admin.username : 'không có'}`)
     console.log(`   Tables   : ${(tables as { table_name: string }[]).map((t) => t.table_name).join(', ')}`)

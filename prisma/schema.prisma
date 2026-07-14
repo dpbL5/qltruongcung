@@ -6,7 +6,12 @@ generator client {
 }
 
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  // DIRECT_URL dùng cho prisma db push / migrations — bypass transaction pooler
+  // (PgBouncer port 6543) để thực thi DDL an toàn qua session pooler (port 5432).
+  // Nếu không set, Prisma CLI fallback về DATABASE_URL.
+  directUrl = env("DIRECT_URL")
 }
 
 // Enums
