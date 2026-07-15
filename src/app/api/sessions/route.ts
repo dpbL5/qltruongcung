@@ -29,12 +29,27 @@ export async function GET(request: NextRequest) {
     const [data, total] = await Promise.all([
       prisma.session.findMany({
         where,
-        include: {
+        select: {
+          id: true,
+          startTime: true,
+          endTime: true,
+          status: true,
+          hourlyRate: true,
+          pricingRuleId: true,
+          pricingRuleSnapshot: true,
+          totalHours: true,
+          subtotal: true,
+          discountAmount: true,
+          totalAmount: true,
+          playerCount: true,
+          promotionRuleId: true,
+          promotionName: true,
+          promotionDiscountType: true,
+          promotionDiscountValue: true,
           customer: { select: { id: true, fullName: true, phone: true, type: true } },
           staff: { select: { id: true, fullName: true } },
           membership: { select: { id: true, startsAt: true, expiresAt: true } },
           shift: { select: { id: true, openedAt: true, status: true } },
-          payment: { select: { paymentMethod: true } },
         },
         skip,
         take: limit,
@@ -106,6 +121,7 @@ export async function POST(request: NextRequest) {
       staffId: auth.userId,
       customerId: parsed.data.customerId,
       pricingRuleId: parsed.data.pricingRuleId,
+      playerCount: parsed.data.playerCount,
     })
 
     return NextResponse.json({ success: true, data: session }, { status: 201 })

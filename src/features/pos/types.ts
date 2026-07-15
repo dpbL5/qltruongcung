@@ -37,6 +37,7 @@ export interface SessionRow {
   subtotal?: number | string | null
   discountAmount?: number | string | null
   totalAmount?: number | string | null
+  playerCount: number
   promotionRuleId?: string | null
   promotionName?: string | null
   promotionDiscountType?: PromotionDiscountType | null

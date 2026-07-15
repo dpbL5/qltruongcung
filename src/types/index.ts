@@ -49,6 +49,7 @@ export interface PlayTimeQuote {
   promotion: PromotionSnapshot | null
   pendingSellTotal: number
   pendingSellItems: PendingSellItem[]
+  playerCount?: number
 }
 
 export interface PendingSellItem {

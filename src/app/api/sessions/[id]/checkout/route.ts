@@ -29,6 +29,7 @@ export async function POST(
       endTime: parsed.data.endTime ? new Date(parsed.data.endTime) : undefined,
       items: parsed.data.items,
       notes: parsed.data.notes,
+      playerCount: parsed.data.playerCount,
     })
 
     return NextResponse.json({ success: true, data: result })

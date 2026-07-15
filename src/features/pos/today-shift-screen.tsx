@@ -504,7 +504,17 @@ function ActiveSessionCard({
   onCheckout: () => void
 }) {
   const isMember = session.customer.type === 'MEMBER'
-  const currentCost = isMember ? 0 : calcCurrentPlayCost(session.startTime, session.hourlyRate)
+  const playerCount = session.playerCount ?? 1
+  const isGroup = playerCount > 1
+  const currentCost = isMember
+    ? 0
+    : calcCurrentPlayCost(
+        session.startTime,
+        session.hourlyRate,
+        undefined,
+        session.pricingRuleSnapshot?.tiers,
+        playerCount,
+      )
   const pendingSell = toNumber(session.pendingSellTotal ?? 0)
   const runningTotal = currentCost + pendingSell
 
@@ -518,6 +528,11 @@ function ActiveSessionCard({
           <Badge variant={isMember ? 'purple' : 'default'} size="sm">
             {isMember ? 'Hội viên' : 'Vãng lai'}
           </Badge>
+          {isGroup && (
+            <Badge variant="outline" size="sm">
+              {playerCount} người
+            </Badge>
+          )}
         </div>
         <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-zinc-500 dark:text-zinc-400">
           <span className="inline-flex items-center gap-1 tabular-nums">
@@ -538,9 +553,14 @@ function ActiveSessionCard({
           <p className="text-sm font-bold tabular-nums text-zinc-950 dark:text-white">
             {money(runningTotal)}
           </p>
+          {isGroup && !isMember && (
+            <p className="text-xs text-zinc-500 dark:text-zinc-400">
+              {money(currentCost / playerCount)}/người
+            </p>
+          )}
           {pendingSell > 0 && (
             <p className="text-xs text-zinc-500 dark:text-zinc-400">
-              {money(currentCost)} giờ + {money(pendingSell)} thêm
+              {!isGroup && !isMember ? `${money(currentCost)} giờ + ` : ''}{money(pendingSell)} thêm
             </p>
           )}
         </div>
@@ -748,6 +768,7 @@ function CheckInDialog({
   const { success: notifySuccess, error: notifyError } = useToast()
   const [mode, setMode] = useState<CheckInMode>('WALK_IN')
   const [walkInName, setWalkInName] = useState('')
+  const [playerCount, setPlayerCount] = useState(1)
   const [memberSearch, setMemberSearch] = useState('')
   const [memberResults, setMemberResults] = useState<Customer[]>([])
   const [selectedMember, setSelectedMember] = useState<Customer | null>(null)
@@ -768,6 +789,7 @@ function CheckInDialog({
     /* eslint-disable react-hooks/set-state-in-effect */
     setMode(initialMode)
     setWalkInName('')
+    setPlayerCount(1)
     setMemberSearch('')
     setMemberResults([])
     setSelectedMember(null)
@@ -846,6 +868,9 @@ function CheckInDialog({
     const body: Record<string, unknown> = { customerId }
     if (mode === 'WALK_IN' && selectedPricingRuleId) {
       body.pricingRuleId = selectedPricingRuleId
+    }
+    if (mode === 'WALK_IN' && playerCount > 1) {
+      body.playerCount = playerCount
     }
     const data = await apiJson<SessionRow>('/api/sessions', jsonRequest(body))
     if (!data.success) {
@@ -1006,6 +1031,35 @@ function CheckInDialog({
               onChange={(event) => setWalkInName(event.target.value)}
               placeholder="Nhập tên khách"
             />
+            <div className="mt-3">
+              <Label htmlFor="player-count">Số người chơi</Label>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setPlayerCount((c) => Math.max(1, c - 1))}
+                  disabled={playerCount <= 1}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+                >
+                  <Minus size={14} />
+                </button>
+                <span className="w-10 text-center text-sm font-semibold tabular-nums text-zinc-950 dark:text-white">
+                  {playerCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setPlayerCount((c) => Math.min(50, c + 1))}
+                  disabled={playerCount >= 50}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-950 text-white disabled:opacity-40 dark:bg-white dark:text-zinc-950"
+                >
+                  <Plus size={14} />
+                </button>
+              </div>
+              {playerCount > 1 && (
+                <p className="mt-1 text-xs text-zinc-500 dark:text-zinc-400">
+                  Nhóm {playerCount} người — chỉ cần 1 người ghi tên, checkout từng người
+                </p>
+              )}
+            </div>
             {applicablePricingRules.length > 0 && (
               <div className="mt-3">
                 <Label htmlFor="pricing-rule">Bảng giá áp dụng</Label>
@@ -1231,6 +1285,7 @@ function CheckoutDrawer({
   const { success: notifySuccess, error: notifyError } = useToast()
   const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('CASH')
   const [cart, setCart] = useState<Record<string, number>>({})
+  const [checkoutPlayerCount, setCheckoutPlayerCount] = useState(1)
   const [playQuote, setPlayQuote] = useState<PlayTimeQuote | null>(null)
   const [promotions, setPromotions] = useState<PromotionSnapshot[]>([])
   const [promotionRuleId, setPromotionRuleId] = useState('')
@@ -1244,6 +1299,7 @@ function CheckoutDrawer({
       /* eslint-disable react-hooks/set-state-in-effect */
       setPaymentMethod('CASH')
       setCart({})
+      setCheckoutPlayerCount(session.playerCount ?? 1)
       setPromotionRuleId('')
       setPromotions([])
       setPromotionsError('')
@@ -1315,9 +1371,14 @@ function CheckoutDrawer({
   }, [session])
 
   const isMember = session?.customer.type === 'MEMBER'
-  const playSubtotal = playQuote?.subtotal ?? 0
-  const playDiscount = playQuote?.discountAmount ?? 0
-  const playTotal = playQuote?.grandTotal ?? 0
+  const sessionPlayerCount = session?.playerCount ?? 1
+  const isGroupSession = sessionPlayerCount > 1
+  const perPersonSubtotal = playQuote?.subtotal ?? 0
+  const perPersonDiscount = playQuote?.discountAmount ?? 0
+  const perPersonTotal = playQuote?.grandTotal ?? 0
+  const playSubtotal = perPersonSubtotal * checkoutPlayerCount
+  const playDiscount = perPersonDiscount * checkoutPlayerCount
+  const playTotal = perPersonTotal * checkoutPlayerCount
   const pendingSellTotal = playQuote?.pendingSellTotal ?? 0
   const pendingSellItems = playQuote?.pendingSellItems ?? []
 
@@ -1355,14 +1416,19 @@ function CheckoutDrawer({
 
     setSubmitting(true)
     try {
-      const data = await apiJson<CheckoutResponse>(`/api/sessions/${session.id}/checkout`, jsonRequest({
+      const body: Record<string, unknown> = {
         paymentMethod,
         promotionRuleId: promotionRuleId || null,
         items: cartLines.map((line) => ({
           productId: line.product.id,
           quantity: line.quantity,
         })),
-      }))
+      }
+      // Chỉ gửi playerCount khi khác với tổng số người (partial checkout)
+      if (isGroupSession && checkoutPlayerCount < sessionPlayerCount) {
+        body.playerCount = checkoutPlayerCount
+      }
+      const data = await apiJson<CheckoutResponse>(`/api/sessions/${session.id}/checkout`, jsonRequest(body))
 
       if (!data.success) {
         notifyError(data.error || 'Không checkout được')
@@ -1383,7 +1449,9 @@ function CheckoutDrawer({
       open={!!session}
       onClose={onClose}
       title={session ? `Thu tiền - ${session.customer.fullName}` : 'Thu tiền'}
-      description={session ? `${isMember ? 'Hội viên' : 'Vãng lai'} · ${calcElapsedHMS(session.startTime)}` : undefined}
+      description={session
+        ? `${isMember ? 'Hội viên' : 'Vãng lai'} · ${calcElapsedHMS(session.startTime)}${isGroupSession ? ` · ${sessionPlayerCount} người` : ''}`
+        : undefined}
       size="lg"
       footer={
         <Button
@@ -1393,12 +1461,50 @@ function CheckoutDrawer({
           disabled={submitting || !shiftReady || quoteLoading || !!quoteError || !playQuote}
           onClick={handleCheckout}
         >
-          {submitting ? 'Đang thu tiền...' : 'Thu tiền & kết thúc'}
+          {submitting
+            ? 'Đang thu tiền...'
+            : isGroupSession && checkoutPlayerCount < sessionPlayerCount
+              ? `Thu tiền ${checkoutPlayerCount} người`
+              : 'Thu tiền & kết thúc'}
         </Button>
       }
     >
       {session && (
         <div className="space-y-4">
+          {isGroupSession && (
+            <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
+              <Label htmlFor="checkout-player-count">Số người checkout</Label>
+              <div className="mt-2 flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setCheckoutPlayerCount((c) => Math.max(1, c - 1))}
+                  disabled={checkoutPlayerCount <= 1}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg border border-zinc-200 text-zinc-600 disabled:opacity-40 dark:border-zinc-700 dark:text-zinc-300"
+                >
+                  <Minus size={14} />
+                </button>
+                <span className="text-lg font-bold tabular-nums text-zinc-950 dark:text-white">
+                  {checkoutPlayerCount}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => setCheckoutPlayerCount((c) => Math.min(sessionPlayerCount, c + 1))}
+                  disabled={checkoutPlayerCount >= sessionPlayerCount}
+                  className="flex h-9 w-9 items-center justify-center rounded-lg bg-zinc-950 text-white disabled:opacity-40 dark:bg-white dark:text-zinc-950"
+                >
+                  <Plus size={14} />
+                </button>
+                <span className="text-xs text-zinc-500 dark:text-zinc-400">
+                  / {sessionPlayerCount} người trong phiên
+                </span>
+              </div>
+              {checkoutPlayerCount < sessionPlayerCount && (
+                <p className="mt-2 text-xs text-amber-600 dark:text-amber-300">
+                  Checkout {checkoutPlayerCount} người — phiên còn {sessionPlayerCount - checkoutPlayerCount} người tiếp tục chơi
+                </p>
+              )}
+            </div>
+          )}
           <div className="rounded-xl border border-zinc-200 bg-zinc-50 p-3 dark:border-zinc-800 dark:bg-zinc-950">
             {quoteLoading ? (
               <p className="text-sm text-zinc-500 dark:text-zinc-400">Đang tính tiền giờ chơi...</p>
@@ -1406,10 +1512,25 @@ function CheckoutDrawer({
               <p className="text-sm text-red-600 dark:text-red-300">{quoteError}</p>
             ) : (
               <>
-                <InvoiceRow
-                  label={isMember ? 'Giờ chơi hội viên' : 'Giờ chơi vãng lai'}
-                  value={money(playSubtotal)}
-                />
+                {isGroupSession ? (
+                  <>
+                    <InvoiceRow
+                      label={`Giờ chơi (${checkoutPlayerCount} người × ${money(perPersonSubtotal)}/người)`}
+                      value={money(playSubtotal)}
+                    />
+                    {perPersonDiscount > 0 && (
+                      <div className="mt-2 flex justify-between gap-3 text-sm text-zinc-500 dark:text-zinc-400">
+                        <span className="truncate">Giá mỗi người</span>
+                        <span className="shrink-0 tabular-nums">{money(perPersonSubtotal)}</span>
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <InvoiceRow
+                    label={isMember ? 'Giờ chơi hội viên' : 'Giờ chơi vãng lai'}
+                    value={money(playSubtotal)}
+                  />
+                )}
                 {playQuote?.promotion && playDiscount > 0 && (
                   <div className="mt-2 flex justify-between gap-3 text-sm text-emerald-700 dark:text-emerald-300">
                     <span className="truncate">Khuyến mại · {playQuote.promotion.name}</span>

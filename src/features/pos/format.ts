@@ -1,5 +1,9 @@
 import { formatVND } from '@/lib/utils'
-import { calculatePlayPrice, type PromotionSnapshot } from '@/lib/promotion-calculation'
+import {
+  calculatePlayPrice,
+  calculateTieredSubtotal,
+  type PromotionSnapshot,
+} from '@/lib/promotion-calculation'
 
 export function toNumber(value: number | string | null | undefined): number {
   return Number(value ?? 0)
@@ -40,16 +44,27 @@ export function calcCurrentPlayCost(
   startTime: string,
   hourlyRate: number | string,
   promotion?: PromotionSnapshot | null,
+  tiers?: { minHours: number; ratePerHour: number }[],
+  playerCount = 1,
 ): number {
   const diffMs = Date.now() - new Date(startTime).getTime()
   if (diffMs < 0) return 0
 
   const totalHours = Math.round((diffMs / (1000 * 60 * 60)) * 100) / 100
-  return calculatePlayPrice({
+
+  // Tính subtotal theo bảng giá luỹ tiến nếu có tiers
+  const subtotal = tiers && tiers.length > 0
+    ? calculateTieredSubtotal(toNumber(hourlyRate), tiers, totalHours)
+    : undefined
+
+  const perPerson = calculatePlayPrice({
     totalHours,
     hourlyRate: toNumber(hourlyRate),
     promotion,
+    subtotal,
   }).grandTotal
+
+  return perPerson * playerCount
 }
 
 export function paymentMethodLabel(method: string): string {

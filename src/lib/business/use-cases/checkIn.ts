@@ -10,6 +10,7 @@ export interface CheckInInput {
   staffId: string
   customerId?: string
   pricingRuleId?: string
+  playerCount?: number
   now?: Date
 }
 
@@ -23,6 +24,7 @@ export interface CheckInResult {
   hourlyRate: number
   pricingRuleId: string | null
   pricingRuleSnapshot: PricingRuleSnapshot | null
+  playerCount: number
   status: 'ACTIVE'
   customer: { id: string; fullName: string; type: 'WALK_IN' | 'MEMBER' }
   membership: { id: string; startsAt: Date; expiresAt: Date } | null
@@ -92,22 +94,25 @@ export async function checkIn({
   staffId,
   customerId,
   pricingRuleId,
+  playerCount = 1,
   now = new Date(),
 }: CheckInInput): Promise<CheckInResult> {
   if (!customerId) {
-    return checkInAnonymousWalkIn({ staffId, pricingRuleId, now })
+    return checkInAnonymousWalkIn({ staffId, pricingRuleId, playerCount, now })
   }
 
-  return checkInRegisteredCustomer({ staffId, customerId, pricingRuleId, now })
+  return checkInRegisteredCustomer({ staffId, customerId, pricingRuleId, playerCount, now })
 }
 
 async function checkInAnonymousWalkIn({
   staffId,
   pricingRuleId,
+  playerCount = 1,
   now,
 }: {
   staffId: string
   pricingRuleId?: string
+  playerCount?: number
   now: Date
 }) {
   const { pricingRuleId: resolvedId, pricingRuleSnapshot } = await resolvePricingSnapshot(pricingRuleId, now)
@@ -150,6 +155,7 @@ async function checkInAnonymousWalkIn({
         hourlyRate: applicableRate,
         pricingRuleId: resolvedId,
         pricingRuleSnapshot: pricingRuleSnapshot as any,
+        playerCount,
         status: 'ACTIVE',
       },
       include: {
@@ -170,6 +176,7 @@ async function checkInAnonymousWalkIn({
         shiftId: openShift.id,
         hourlyRate: applicableRate,
         pricingRuleId: resolvedId,
+        playerCount,
       },
     })
 
@@ -186,11 +193,13 @@ async function checkInRegisteredCustomer({
   staffId,
   customerId,
   pricingRuleId,
+  playerCount = 1,
   now,
 }: {
   staffId: string
   customerId: string
   pricingRuleId?: string
+  playerCount?: number
   now: Date
 }) {
   const customer = await prisma.customer.findUnique({
@@ -242,6 +251,7 @@ async function checkInRegisteredCustomer({
         hourlyRate: rate,
         pricingRuleId: resolvedPricingRuleId,
         pricingRuleSnapshot: pricingRuleSnapshot as any,
+        playerCount,
         status: 'ACTIVE',
       },
       include: {
@@ -263,6 +273,7 @@ async function checkInRegisteredCustomer({
         shiftId: openShift.id,
         hourlyRate: rate,
         pricingRuleId: resolvedPricingRuleId,
+        playerCount,
       },
     })
 

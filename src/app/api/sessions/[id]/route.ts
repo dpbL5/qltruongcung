@@ -32,14 +32,7 @@ export async function GET(
       include: {
         customer: { select: { id: true, fullName: true, phone: true, type: true } },
         staff: { select: { id: true, fullName: true } },
-        payment: {
-          select: {
-            id: true,
-            paymentMethod: true,
-            grandTotal: true,
-            paidAt: true,
-          },
-        },
+        payments: { select: { id: true, paymentMethod: true, grandTotal: true, paidAt: true } },
       },
     });
 

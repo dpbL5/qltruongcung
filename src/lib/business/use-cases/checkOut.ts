@@ -29,6 +29,8 @@ export interface CheckoutInput {
   endTime?: Date
   items: CheckoutLineInput[]
   notes?: string
+  /** Số người checkout (mặc định = tất cả người còn lại trong phiên) */
+  playerCount?: number
 }
 
 export interface CheckoutResult {
@@ -49,6 +51,9 @@ export interface CheckoutResult {
   promotion: PromotionSnapshot | null
   paymentMethod: PaymentMethod
   paymentId: string
+  checkedOutPlayers: number
+  remainingPlayers: number
+  sessionClosed: boolean
 }
 
 interface CheckoutLine {
@@ -68,6 +73,7 @@ export async function checkOut({
   endTime = new Date(),
   items,
   notes,
+  playerCount,
 }: CheckoutInput): Promise<CheckoutResult> {
   const session = await prisma.session.findUnique({
     where: { id: sessionId },
@@ -82,6 +88,15 @@ export async function checkOut({
   }
   if (endTime < session.startTime) {
     throw new Error('END_TIME_BEFORE_START')
+  }
+
+  // ── Xác định số người checkout ──
+  const checkoutCount = Math.min(
+    playerCount ?? session.playerCount,
+    session.playerCount
+  )
+  if (checkoutCount <= 0) {
+    throw new Error('NO_PLAYERS_TO_CHECKOUT')
   }
 
   const checkoutAt = new Date()
@@ -175,21 +190,28 @@ export async function checkOut({
   })
 
   const productSubtotal = checkoutLines.reduce((sum, line) => sum + line.subtotal, 0)
-  let invoiceSubtotal = pricing.subtotal + productSubtotal
-  let invoiceGrandTotal = playTotal + productSubtotal
+
+  // ── Nhân tiền giờ chơi với số người checkout ──
+  const perPersonSubtotal = pricing.subtotal
+  const perPersonDiscount = pricing.promotionDiscount
+  const perPersonTotal = playTotal
+  const multipliedSubtotal = perPersonSubtotal * checkoutCount
+  const multipliedDiscount = perPersonDiscount * checkoutCount
+  const multipliedPlayTotal = perPersonTotal * checkoutCount
+
+  let invoiceSubtotal = multipliedSubtotal + productSubtotal
+  let invoiceGrandTotal = multipliedPlayTotal + productSubtotal
   const paidAt = checkoutAt
 
   const result = await prisma.$transaction(async (tx) => {
-    // ── Kiểm tra ca làm trong transaction để tránh TOCTOU race ──
+    // ── Kiểm tra ca làm trong transaction ──
+    // Cho phép checkout phiên từ ca trước: tiền thuộc về ca đang mở hiện tại
     const openShift = await findOpenShiftForStaff(tx, staffId)
     if (!openShift) {
       throw new Error('SHIFT_REQUIRED')
     }
-    if (session.shiftId && session.shiftId !== openShift.id) {
-      throw new Error('SHIFT_MISMATCH')
-    }
 
-    const shiftId = session.shiftId ?? openShift.id
+    const shiftId = openShift.id
 
     // ── Re-validate membership trong transaction (TOCTOU guard) ──
     if (pricing.isMemberSession) {
@@ -228,9 +250,9 @@ export async function checkOut({
       grandTotal: playPrice.grandTotal,
       promotion,
     }
-    playDiscountTotal = finalPricing.promotionDiscount
-    playTotal = Math.max(0, finalPricing.grandTotal)
-    invoiceSubtotal = finalPricing.subtotal + productSubtotal
+    playDiscountTotal = finalPricing.promotionDiscount * checkoutCount
+    playTotal = Math.max(0, finalPricing.grandTotal) * checkoutCount
+    invoiceSubtotal = finalPricing.subtotal * checkoutCount + productSubtotal
     invoiceGrandTotal = playTotal + productSubtotal
 
     const invoice = await tx.invoice.create({
@@ -245,20 +267,21 @@ export async function checkOut({
         discountTotal: playDiscountTotal,
         grandTotal: invoiceGrandTotal,
         paidAt,
-        notes,
+        notes: notes || (checkoutCount < session.playerCount ? `Checkout ${checkoutCount}/${session.playerCount} người` : undefined),
       },
     })
 
+    // PLAY_TIME item: quantity là tổng person-hours
     await tx.invoiceItem.create({
       data: {
         invoiceId: invoice.id,
         type: 'PLAY_TIME',
         description: finalPricing.isMemberSession
-          ? 'Giờ chơi hội viên'
-          : 'Giờ chơi khách vãng lai',
-        quantity: finalPricing.totalHours,
+          ? `Giờ chơi hội viên × ${checkoutCount} người`
+          : `Giờ chơi khách vãng lai × ${checkoutCount} người`,
+        quantity: +(finalPricing.totalHours * checkoutCount).toFixed(2),
         unitPrice: finalPricing.hourlyRate,
-        subtotal: finalPricing.subtotal,
+        subtotal: finalPricing.subtotal * checkoutCount,
         discountAmount: playDiscountTotal,
         total: playTotal,
         metadata: {
@@ -269,6 +292,9 @@ export async function checkOut({
           promotion: toPromotionMetadata(finalPricing.promotion),
           playSubtotal: finalPricing.subtotal,
           playTotal,
+          checkoutCount,
+          perPersonSubtotal: finalPricing.subtotal,
+          perPersonHours: finalPricing.totalHours,
         },
       },
     })
@@ -353,33 +379,49 @@ export async function checkOut({
       },
     })
 
-    await tx.session.update({
-      where: { id: sessionId },
-      data: {
-        shiftId,
-        endTime,
-        status: 'COMPLETED',
-        totalHours: finalPricing.totalHours,
-        subtotal: finalPricing.subtotal,
-        promotionRuleId: finalPricing.promotion?.ruleId,
-        promotionName: finalPricing.promotion?.name,
-        promotionDiscountType: finalPricing.promotion?.discountType,
-        promotionDiscountValue: finalPricing.promotion?.discountValue,
-        discountAmount: playDiscountTotal,
-        totalAmount: invoiceGrandTotal,
-      },
-    })
+    // ── Cập nhật session: partial checkout giữ ACTIVE, full checkout đóng session ──
+    const isFullCheckout = checkoutCount >= session.playerCount
+    const remainingPlayers = session.playerCount - checkoutCount
+
+    if (isFullCheckout) {
+      await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          shiftId,
+          endTime,
+          status: 'COMPLETED',
+          playerCount: 0,
+          totalHours: finalPricing.totalHours,
+          subtotal: finalPricing.subtotal,
+          promotionRuleId: finalPricing.promotion?.ruleId,
+          promotionName: finalPricing.promotion?.name,
+          promotionDiscountType: finalPricing.promotion?.discountType,
+          promotionDiscountValue: finalPricing.promotion?.discountValue,
+          discountAmount: playDiscountTotal,
+          totalAmount: invoiceGrandTotal,
+        },
+      })
+    } else {
+      // Partial checkout: giữ ACTIVE, giảm playerCount
+      await tx.session.update({
+        where: { id: sessionId },
+        data: {
+          playerCount: remainingPlayers,
+        },
+      })
+    }
 
     await tx.customer.update({
       where: { id: session.customerId },
       data: {
-        totalHoursPlayed: { increment: finalPricing.totalHours },
+        totalHoursPlayed: { increment: +(finalPricing.totalHours * checkoutCount).toFixed(2) },
         totalSpent: { increment: invoiceGrandTotal },
       },
     })
 
-    // ── Huỷ các hóa đơn DRAFT (bán kèm) vì đã gộp vào hóa đơn checkout ──
-    if (draftInvoiceIds.length > 0) {
+    // ── Chỉ huỷ hóa đơn DRAFT khi checkout toàn bộ phiên ──
+    // Với partial checkout, DRAFT invoices ở lại cho người chơi còn lại
+    if (isFullCheckout && draftInvoiceIds.length > 0) {
       await tx.invoice.updateMany({
         where: { id: { in: draftInvoiceIds }, status: 'DRAFT' },
         data: {
@@ -404,12 +446,17 @@ export async function checkOut({
         playSubtotal: finalPricing.subtotal,
         promotionDiscount: playDiscountTotal,
         promotion: toPromotionMetadata(finalPricing.promotion),
-        mergedDraftInvoices: draftInvoiceIds.length > 0 ? draftInvoiceIds : undefined,
+        checkoutCount,
+        remainingPlayers,
+        isFullCheckout,
+        mergedDraftInvoices: isFullCheckout && draftInvoiceIds.length > 0 ? draftInvoiceIds : undefined,
       },
     })
 
     return { invoice, payment }
   })
+
+  const isFullCheckout = checkoutCount >= session.playerCount
 
   return {
     sessionId,
@@ -421,7 +468,7 @@ export async function checkOut({
     totalHours: finalPricing.totalHours,
     hourlyRate: finalPricing.hourlyRate,
     subtotal: invoiceSubtotal,
-    playSubtotal: finalPricing.subtotal,
+    playSubtotal: finalPricing.subtotal * checkoutCount,
     productSubtotal,
     promotionDiscount: playDiscountTotal,
     grandTotal: invoiceGrandTotal,
@@ -429,6 +476,9 @@ export async function checkOut({
     promotion: finalPricing.promotion,
     paymentMethod,
     paymentId: result.payment.id,
+    checkedOutPlayers: checkoutCount,
+    remainingPlayers: session.playerCount - checkoutCount,
+    sessionClosed: isFullCheckout,
   }
 }
 
@@ -456,11 +506,11 @@ export function mapCheckoutError(error: Error): { code: string; message: string;
   if (message.startsWith('INSUFFICIENT_STOCK:')) {
     return { code: 'INSUFFICIENT_STOCK', message: `${message.replace('INSUFFICIENT_STOCK:', '')} không đủ tồn kho`, status: 400 }
   }
+  if (message === 'NO_PLAYERS_TO_CHECKOUT') {
+    return { code: 'NO_PLAYERS_TO_CHECKOUT', message: 'Không còn người chơi nào để checkout', status: 400 }
+  }
   if (message === 'SHIFT_REQUIRED') {
     return { code: 'SHIFT_REQUIRED', message: 'Cần mở hoặc tham gia ca trước khi checkout', status: 409 }
-  }
-  if (message === 'SHIFT_MISMATCH') {
-    return { code: 'SHIFT_MISMATCH', message: 'Phiên này không thuộc ca đang mở của nhân viên hiện tại', status: 409 }
   }
   if (message === 'MEMBERSHIP_EXPIRED_DURING_CHECKOUT') {
     return { code: 'MEMBERSHIP_EXPIRED_DURING_CHECKOUT', message: 'Gói hội viên đã hết hạn trong lúc checkout. Vui lòng thử lại.', status: 409 }

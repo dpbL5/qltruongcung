@@ -14,7 +14,7 @@ export async function GET(
     const { id } = await params
     const session = await prisma.session.findUnique({
       where: { id },
-      select: { id: true, status: true },
+      select: { id: true, status: true, playerCount: true },
     })
 
     if (!session) {
@@ -89,6 +89,7 @@ export async function GET(
       promotion: pricing.promotion,
       pendingSellTotal,
       pendingSellItems,
+      playerCount: session.playerCount,
     }
 
     return NextResponse.json({ success: true, data: quote })
