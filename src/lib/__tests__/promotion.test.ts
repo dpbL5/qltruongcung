@@ -9,7 +9,7 @@ import {
   createPromotionRuleSchema,
   updatePromotionRuleSchema,
 } from '@/lib/validations/promotion'
-import { calculateTieredSubtotal } from '@/lib/pricing'
+import { calculateTieredSubtotal } from '@/lib/promotion-calculation'
 
 const validPromotion = {
   name: 'Giảm giờ ngày thường',

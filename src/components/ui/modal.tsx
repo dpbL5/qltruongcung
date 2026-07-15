@@ -57,12 +57,12 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end md:items-center justify-center p-0 md:p-4 animate-fade-in"
+      className="fixed inset-0 z-[60] flex items-center justify-center p-4 pb-20 md:pb-4 animate-fade-in"
       style={{ background: "var(--color-surface-overlay)" }}
       onClick={onClose}
     >
       <div
-        className={`w-full ${sizeClasses[size]} max-h-[95dvh] md:max-h-[90vh] flex flex-col overflow-hidden rounded-t-2xl md:rounded-2xl bg-white dark:bg-zinc-900 shadow-xl animate-slide-up border border-zinc-200 dark:border-zinc-800 ${className}`}
+        className={`w-full ${sizeClasses[size]} max-h-[calc(100dvh-7rem)] md:max-h-[90vh] flex flex-col overflow-hidden rounded-2xl bg-white dark:bg-zinc-900 shadow-xl animate-slide-up border border-zinc-200 dark:border-zinc-800 ${className}`}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header */}

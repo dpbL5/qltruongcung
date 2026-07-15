@@ -77,6 +77,47 @@ export function calculatePlayPrice({
   }
 }
 
+/**
+ * Tính tiền giờ chơi theo mô hình luỹ tiến:
+ * - Từ giờ 0 đến tier[0].minHours: dùng baseRate
+ * - Từ tier[0].minHours đến tier[1].minHours: dùng tier[0].ratePerHour
+ * - ...
+ * - Từ tier cuối đến hết: dùng tier cuối.ratePerHour
+ *
+ * Ví dụ: baseRate = 100k, tier[0] = { minHours: 1, ratePerHour: 60k }, chơi 4h
+ *   → 1h × 100k + 3h × 60k = 280k
+ */
+export function calculateTieredSubtotal(
+  baseRate: number,
+  tiers: { minHours: number; ratePerHour: number }[],
+  totalHours: number
+): number {
+  if (totalHours <= 0 || (tiers.length === 0 && baseRate <= 0)) return 0
+
+  let remainingHours = totalHours
+  let subtotal = 0
+  let currentRate = baseRate
+  let segmentStart = 0
+
+  for (const tier of tiers) {
+    const segmentEnd = tier.minHours
+    const segmentHours = Math.max(0, Math.min(remainingHours, segmentEnd - segmentStart))
+    subtotal += Math.round(segmentHours * currentRate)
+    remainingHours -= segmentHours
+    currentRate = tier.ratePerHour
+    segmentStart = segmentEnd
+
+    if (remainingHours <= 0) break
+  }
+
+  // Số giờ còn lại dùng mức giá của tier cuối cùng
+  if (remainingHours > 0) {
+    subtotal += Math.round(remainingHours * currentRate)
+  }
+
+  return subtotal
+}
+
 export function calculatePromotionDiscount({
   totalHours,
   subtotal,
