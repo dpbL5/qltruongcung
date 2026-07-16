@@ -19,13 +19,37 @@ export async function GET(request: NextRequest) {
       )
     }
 
-    const payments = await prisma.payment.findMany({
-      where: {
-        paidAt: { gte: fromDate, lte: toDate },
-        ...(auth.role === 'STAFF' ? { staffId: auth.userId } : {}),
-      },
-      orderBy: { paidAt: 'asc' },
-    })
+    const paymentWhere = {
+      paidAt: { gte: fromDate, lte: toDate },
+      ...(auth.role === 'STAFF' ? { staffId: auth.userId } : {}),
+    }
+
+    const [payments, recentPayments] = await Promise.all([
+      prisma.payment.findMany({
+        where: paymentWhere,
+        orderBy: { paidAt: 'asc' },
+      }),
+      prisma.payment.findMany({
+        where: paymentWhere,
+        include: {
+          invoice: {
+            select: {
+              id: true,
+              invoiceNo: true,
+              customer: { select: { fullName: true } },
+            },
+          },
+          session: {
+            select: {
+              customer: { select: { fullName: true } },
+            },
+          },
+          staff: { select: { fullName: true } },
+        },
+        orderBy: { paidAt: 'desc' },
+        take: 5,
+      }),
+    ])
 
     const grouped: Record<string, { revenue: number; count: number }> = {}
     for (const payment of payments) {
@@ -55,6 +79,19 @@ export async function GET(request: NextRequest) {
         totalSessions,
         averagePayment: totalSessions > 0 ? Math.round(totalRevenue / totalSessions) : 0,
       },
+      payments: recentPayments.map((payment) => ({
+        id: payment.id,
+        paidAt: payment.paidAt,
+        customerName:
+          payment.invoice?.customer?.fullName
+          ?? payment.session?.customer.fullName
+          ?? 'Khách lẻ',
+        invoiceId: payment.invoice?.id ?? null,
+        invoiceNo: payment.invoice?.invoiceNo ?? null,
+        paymentMethod: payment.paymentMethod,
+        grandTotal: Number(payment.grandTotal),
+        staffName: payment.staff.fullName,
+      })),
     })
   } catch (error) {
     if ((error as Error).message === 'UNAUTHORIZED') {

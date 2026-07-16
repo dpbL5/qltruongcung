@@ -29,7 +29,10 @@ export async function GET(request: NextRequest) {
         : undefined
 
     if (current) {
-      const shift = await findOpenShiftForStaff(prisma, auth.userId)
+      let shift = await findOpenShiftForStaff(prisma, auth.userId)
+      if (!shift && auth.role === 'ADMIN') {
+        shift = await findOpenOperationalShift(prisma)
+      }
       return NextResponse.json({ success: true, data: shift })
     }
 

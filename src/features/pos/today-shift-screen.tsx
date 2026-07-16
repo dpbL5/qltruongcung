@@ -66,6 +66,7 @@ export function TodayShiftScreen() {
   const [membershipPlans, setMembershipPlans] = useState<MembershipPlan[]>([])
   const [pricingCount, setPricingCount] = useState<number | null>(null)
   const [activePricingCount, setActivePricingCount] = useState<number | null>(null)
+  const [authRole, setAuthRole] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [submitting, setSubmitting] = useState(false)
@@ -88,13 +89,14 @@ export function TodayShiftScreen() {
     setLoading(true)
     setError('')
     try {
-      const [shiftData, openShiftData, sessionData, productData, planData, pricingData] = await Promise.all([
+      const [shiftData, openShiftData, sessionData, productData, planData, pricingData, authData] = await Promise.all([
         apiJson<Shift | null>('/api/shifts?current=true'),
         apiJson<Shift | null>('/api/shifts?openOperational=true'),
         apiJson<SessionRow[]>('/api/sessions?status=ACTIVE&limit=50'),
         apiJson<Product[]>('/api/products?isActive=true'),
         apiJson<MembershipPlan[]>('/api/membership-plans'),
         apiJson<{ count: number; activeCount?: number }>('/api/pricing/status'),
+        apiJson<{ role: string }>('/api/auth/me'),
       ])
 
       if (!shiftData.success) throw new Error(shiftData.error || 'Không tải được ca làm')
@@ -103,6 +105,7 @@ export function TodayShiftScreen() {
       if (!productData.success) throw new Error(productData.error || 'Không tải được hàng hóa')
       if (!planData.success) throw new Error(planData.error || 'Không tải được gói hội viên')
       if (!pricingData.success) throw new Error(pricingData.error || 'Không tải được bảng giá')
+      if (!authData.success) throw new Error(authData.error || 'Không tải được thông tin đăng nhập')
 
       setShift(shiftData.data ?? null)
       setOpenOperationalShift(openShiftData.data ?? null)
@@ -111,6 +114,7 @@ export function TodayShiftScreen() {
       setMembershipPlans((planData.data ?? []).filter((plan) => plan.isActive))
       setPricingCount(pricingData.data?.count ?? 0)
       setActivePricingCount(pricingData.data?.activeCount ?? pricingData.data?.count ?? 0)
+      setAuthRole(authData.data?.role ?? null)
     } catch (err) {
       setError((err as Error).message || 'Lỗi kết nối máy chủ')
     } finally {
@@ -124,7 +128,8 @@ export function TodayShiftScreen() {
   const activeWalkIns = sessions.filter((session) => session.customer.type === 'WALK_IN').length
   const activeMembers = sessions.filter((session) => session.customer.type === 'MEMBER').length
   const pricingReady = (activePricingCount ?? pricingCount ?? 0) > 0
-  const shiftReady = !!shift
+  const isAdmin = authRole === 'ADMIN'
+  const shiftReady = isAdmin || !!shift
 
   const handleOpenShift = async (openingCash?: number, notes?: string) => {
     setSubmitting(true)

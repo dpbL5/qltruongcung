@@ -124,28 +124,6 @@ export async function GET() {
         : Promise.resolve(0),
     ])
 
-    // ── Batch 3: Recent payments (1 query — có thể nặng hơn) ──
-    const recentPayments = await prisma.payment.findMany({
-      where: paymentWhere,
-      include: {
-        invoice: {
-          select: {
-            id: true,
-            invoiceNo: true,
-            customer: { select: { fullName: true } },
-          },
-        },
-        session: {
-          select: {
-            customer: { select: { fullName: true } },
-          },
-        },
-        staff: { select: { fullName: true } },
-      },
-      orderBy: { paidAt: 'desc' },
-      take: 5,
-    })
-
     const todayRevenue = Number(todayPayments._sum.grandTotal ?? 0)
     const todayPaymentBreakdown = normalizePaymentBreakdown(todayPaymentMethods)
     const todayItemBreakdown = normalizeItemBreakdown(todayItemTypes)
@@ -181,16 +159,6 @@ export async function GET() {
         byPaymentMethod: Record<PaymentMethodKey, { total: number; count: number }>
         byItemType: Record<ItemTypeKey, number>
       }
-      recentPayments: Array<{
-        id: string
-        paidAt: Date
-        customerName: string
-        invoiceId: string | null
-        invoiceNo: string | null
-        paymentMethod: PaymentMethodKey
-        grandTotal: number
-        staffName: string
-      }>
     } = {
       todayRevenue,
       todaySessions,
@@ -224,19 +192,6 @@ export async function GET() {
             byItemType: shiftItemBreakdown,
           }
         : null,
-      recentPayments: recentPayments.map((payment) => ({
-        id: payment.id,
-        paidAt: payment.paidAt,
-        customerName:
-          payment.invoice?.customer?.fullName
-          ?? payment.session?.customer.fullName
-          ?? 'Khách lẻ',
-        invoiceId: payment.invoice?.id ?? null,
-        invoiceNo: payment.invoice?.invoiceNo ?? null,
-        paymentMethod: payment.paymentMethod,
-        grandTotal: Number(payment.grandTotal),
-        staffName: payment.staff.fullName,
-      })),
     }
 
     return NextResponse.json({ success: true, data: stats })

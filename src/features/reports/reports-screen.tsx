@@ -68,16 +68,6 @@ interface ReportDashboard {
     byPaymentMethod: PaymentBreakdown
     byItemType: ItemBreakdown
   }
-  recentPayments: Array<{
-    id: string
-    paidAt: string
-    customerName: string
-    invoiceId: string | null
-    invoiceNo: string | null
-    paymentMethod: PaymentMethod
-    grandTotal: number
-    staffName: string
-  }>
 }
 
 interface RevenueData {
@@ -95,10 +85,22 @@ interface RevenueSummary {
   averagePayment: number
 }
 
+interface RevenuePayment {
+  id: string
+  paidAt: string
+  customerName: string
+  invoiceId: string | null
+  invoiceNo: string | null
+  paymentMethod: PaymentMethod
+  grandTotal: number
+  staffName: string
+}
+
 interface RevenueResponse {
   success: boolean
   data?: RevenueData[]
   summary?: RevenueSummary
+  payments?: RevenuePayment[]
   error?: string
 }
 
@@ -107,6 +109,7 @@ export function ReportsScreen() {
   const [user, setUser] = useState<UserSession | null>(null)
   const [revenue, setRevenue] = useState<RevenueData[]>([])
   const [revenueSummary, setRevenueSummary] = useState<RevenueSummary | null>(null)
+  const [recentPayments, setRecentPayments] = useState<RevenuePayment[]>([])
   const [from, setFrom] = useState(() => toInputDate(new Date()))
   const [to, setTo] = useState(() => toInputDate(new Date()))
   const [exportType, setExportType] = useState('revenue')
@@ -148,6 +151,7 @@ export function ReportsScreen() {
 
       setRevenue(data.data ?? [])
       setRevenueSummary(data.summary ?? null)
+      setRecentPayments(data.payments ?? [])
     } catch {
       setError('Lỗi kết nối máy chủ')
     } finally {
@@ -355,6 +359,19 @@ export function ReportsScreen() {
               </div>
             )}
           </div>
+
+          {recentPayments.length > 0 && (
+            <div className="mt-6 border-t border-zinc-200 pt-4 dark:border-zinc-800">
+              <h3 className="mb-3 text-xs font-semibold uppercase tracking-wide text-zinc-500 dark:text-zinc-400">
+                Giao dịch gần đây
+              </h3>
+              <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
+                {recentPayments.map((payment) => (
+                  <RecentPaymentRow key={payment.id} payment={payment} />
+                ))}
+              </div>
+            </div>
+          )}
         </section>
 
         <section className="rounded-xl border border-zinc-200 bg-white p-4 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
@@ -400,26 +417,15 @@ export function ReportsScreen() {
           </div>
         </section>
 
-        <section className="rounded-xl border border-zinc-200 bg-white shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-          <div className="border-b border-zinc-200 px-4 py-3 dark:border-zinc-800">
-            <h2 className="text-sm font-semibold text-zinc-950 dark:text-white">
-              Giao dịch gần đây
-            </h2>
-          </div>
-          {dashboard?.recentPayments.length ? (
-            <div className="divide-y divide-zinc-100 dark:divide-zinc-800">
-              {dashboard.recentPayments.map((payment) => (
-                <RecentPaymentRow key={payment.id} payment={payment} />
-              ))}
-            </div>
-          ) : (
+        {recentPayments.length === 0 && !revenueLoading && revenue.length === 0 && (
+          <section className="rounded-xl border border-zinc-200 bg-white p-6 shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
             <EmptyState
               icon={ReceiptText}
               message="Chưa có giao dịch"
-              description="Các khoản thu hôm nay sẽ hiện ở đây."
+              description="Các khoản thu trong khoảng ngày đã chọn sẽ hiện ở đây."
             />
-          )}
-        </section>
+          </section>
+        )}
       </div>
     </div>
   )
@@ -660,7 +666,7 @@ function RevenueRow({
 function RecentPaymentRow({
   payment,
 }: {
-  payment: ReportDashboard['recentPayments'][number]
+  payment: RevenuePayment
 }) {
   const router = useRouter()
   return (
